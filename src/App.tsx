@@ -448,6 +448,8 @@ const [game, setGame] = useState("Jacks or Better 9/6");
 const [playerHold, setPlayerHold] = useState<number[]>([]);
 const [score, setScore] = useState({played:0, correct:0});
 const [history, setHistory] = useState<any[]>([]);
+const [selectedPosition, setSelectedPosition] = useState<number | null>(null);
+const [showCardPicker, setShowCardPicker] = useState(false);
 
 const paytable = PAYTABLES[game];
 
@@ -602,22 +604,83 @@ HOLD
 </div>
 
 <div className="bg-white rounded-2xl shadow p-6 mb-6">
-<h3 className="text-xl font-bold mb-4">🔍 Hand Analysis - Input Your Cards</h3>
+<h3 className="text-xl font-bold mb-4">🔍 Hand Analysis - Select Your Cards</h3>
 <div className="grid grid-cols-5 gap-4 mb-6">
-{cards.map((card, i) => (
+{cards.map((card, i) => {
+const cardRank = rank(card);
+const cardSuit = suit(card);
+const colorClass = getCardColor(cardSuit);
+return (
 <div key={i} className="flex flex-col items-center gap-2">
 <div className="text-sm text-gray-500 font-medium">Card {i+1}</div>
-<CardInput 
-  value={card} 
-  onChange={(newCard) => {
-    const newCards = [...cards];
-    newCards[i] = newCard;
-    setCards(newCards);
-  }} 
-/>
+<button 
+  onClick={() => {
+    setSelectedPosition(i);
+    setShowCardPicker(true);
+  }}
+  className="relative w-16 h-24 rounded-lg border-2 bg-white shadow-lg transition-all duration-200 hover:shadow-xl border-blue-300 hover:border-blue-500"
+>
+<div className={`flex flex-col items-center justify-center h-full ${colorClass}`}>
+<div className="text-lg font-bold">{cardRank}</div>
+<div className="text-xl">{cardSuit}</div>
+</div>
+</button>
+</div>
+);
+})}
+</div>
+
+{/* Card Picker Modal */}
+{showCardPicker && selectedPosition !== null && (
+<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowCardPicker(false)}>
+<div className="bg-white rounded-2xl p-6 max-w-4xl max-h-96 overflow-y-auto" onClick={e => e.stopPropagation()}>
+<h4 className="text-lg font-bold mb-4">Select Card for Position {selectedPosition + 1}</h4>
+<div className="grid grid-cols-13 gap-2">
+{SUITS.map(suitType => (
+<div key={suitType} className="col-span-13">
+<div className="text-center text-lg mb-2">{suitType}</div>
+<div className="grid grid-cols-13 gap-1">
+{RANKS.map(rankType => {
+const cardCode = rankType + suitType;
+const isUsed = cards.includes(cardCode) && cards.indexOf(cardCode) !== selectedPosition;
+const colorClass = getCardColor(suitType);
+return (
+<button
+  key={cardCode}
+  onClick={() => {
+    if (!isUsed) {
+      const newCards = [...cards];
+      newCards[selectedPosition] = cardCode;
+      setCards(newCards);
+      setShowCardPicker(false);
+      setSelectedPosition(null);
+    }
+  }}
+  disabled={isUsed}
+  className={`w-8 h-12 text-xs rounded border transition-all ${
+    isUsed 
+      ? "bg-gray-200 text-gray-400 cursor-not-allowed" 
+      : `bg-white hover:bg-gray-50 border-gray-300 hover:border-blue-400 ${colorClass}`
+  }`}
+>
+<div>{rankType}</div>
+<div className="text-sm">{suitType}</div>
+</button>
+);
+})}
+</div>
 </div>
 ))}
 </div>
+<button 
+  onClick={() => setShowCardPicker(false)}
+  className="mt-4 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+>
+Close
+</button>
+</div>
+</div>
+)}
 
 <div className="flex gap-3 mb-4">
 <button 

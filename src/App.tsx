@@ -440,6 +440,141 @@ if (bestHold.hold.length === 0) {
 return `Hold ${bestHold.hold.length} cards with expected value: ${bestHold.ev.toFixed(2)}`;
 }
 
+function getAllStrategyOptions(cards: string[], paytable: Record<string, number>, game: string): {hold: number[], ev: number, description: string}[] {
+  const options: {hold: number[], ev: number, description: string}[] = [];
+  
+  // Calculate EV for common strategic options
+  const commonOptions = [
+    { hold: [], desc: "Draw 5 new cards" },
+    { hold: [0, 1, 2, 3, 4], desc: "Keep all cards" },
+    { hold: [0], desc: "Keep only first card" },
+    { hold: [1], desc: "Keep only second card" },
+    { hold: [2], desc: "Keep only third card" },
+    { hold: [3], desc: "Keep only fourth card" },
+    { hold: [4], desc: "Keep only fifth card" },
+    { hold: [0, 1], desc: "Keep first two cards" },
+    { hold: [0, 2], desc: "Keep first and third cards" },
+    { hold: [1, 2], desc: "Keep second and third cards" },
+    { hold: [2, 3], desc: "Keep third and fourth cards" },
+    { hold: [3, 4], desc: "Keep last two cards" },
+  ];
+  
+  const ranks = cards.map(rank);
+  const suits = cards.map(suit);
+  
+  // Add pair-specific options
+  for (let i = 0; i < ranks.length; i++) {
+    for (let j = i + 1; j < ranks.length; j++) {
+      if (ranks[i] === ranks[j]) {
+        options.push({
+          hold: [i, j],
+          ev: calculateSimpleEV([i, j], cards, paytable),
+          description: `Keep pair of ${ranks[i]}s`
+        });
+      }
+    }
+  }
+  
+  // Add high card options
+  const highCardIndices: number[] = [];
+  ranks.forEach((r, i) => {
+    if (['J', 'Q', 'K', 'A'].includes(r)) {
+      highCardIndices.push(i);
+      options.push({
+        hold: [i],
+        ev: calculateSimpleEV([i], cards, paytable),
+        description: `Keep ${r} (high card)`
+      });
+    }
+  });
+  
+  // Add suited combinations for flush draws
+  for (const suitType of ['♠', '♥', '♦', '♣']) {
+    const suitedCards = cards.map((card, i) => suits[i] === suitType ? i : -1).filter(i => i >= 0);
+    if (suitedCards.length >= 4) {
+      options.push({
+        hold: suitedCards,
+        ev: calculateSimpleEV(suitedCards, cards, paytable),
+        description: `Keep 4-card ${suitType} flush draw`
+      });
+    }
+  }
+  
+  // Add basic options
+  options.push({
+    hold: [],
+    ev: calculateSimpleEV([], cards, paytable),
+    description: "Draw 5 new cards"
+  });
+  
+  options.push({
+    hold: [0, 1, 2, 3, 4],
+    ev: calculateSimpleEV([0, 1, 2, 3, 4], cards, paytable),
+    description: "Keep all 5 cards (pat hand)"
+  });
+  
+  // Sort by EV and return top options
+  return options
+    .sort((a, b) => b.ev - a.ev)
+    .filter((option, index, arr) => {
+      // Remove duplicates
+      return !arr.slice(0, index).some(prev => 
+        prev.hold.length === option.hold.length && 
+        prev.hold.every(x => option.hold.includes(x))
+      );
+    })
+    .slice(0, 4); // Top 4 options
+}
+
+function calculateSimpleEV(hold: number[], cards: string[], paytable: Record<string, number>): number {
+  // Simplified EV calculation for comparison
+  if (hold.length === 5) {
+    return evaluate5(cards, paytable).payout;
+  }
+  
+  if (hold.length === 0) {
+    return 0.3; // Baseline for drawing 5
+  }
+  
+  const heldCards = hold.map(i => cards[i]);
+  const heldRanks = heldCards.map(rank);
+  const heldSuits = heldCards.map(suit);
+  
+  // Check for pairs
+  const rankCounts: {[key: string]: number} = {};
+  heldRanks.forEach(r => rankCounts[r] = (rankCounts[r] || 0) + 1);
+  
+  const pairs = Object.entries(rankCounts).filter(([rank, count]) => count === 2);
+  const trips = Object.entries(rankCounts).filter(([rank, count]) => count === 3);
+  
+  if (trips.length > 0) {
+    return 3.5; // Three of a kind
+  }
+  
+  if (pairs.length > 0) {
+    const pairRank = pairs[0][0];
+    const pairValue = RANK_ORDER[pairRank] || 0;
+    if (pairValue >= 11) {
+      return 1.4; // High pair
+    } else {
+      return 0.9; // Low pair
+    }
+  }
+  
+  // Check for flush draws
+  if (new Set(heldSuits).size === 1 && heldCards.length === 4) {
+    return 2.3; // 4-card flush
+  }
+  
+  // High cards
+  const highCards = heldCards.filter(c => ['J', 'Q', 'K', 'A'].includes(rank(c)));
+  if (highCards.length > 0) {
+    return 0.4 * highCards.length;
+  }
+  
+  return 0.2; // Nothing special
+}
+
 function calculateMistakeSeverity(playerHold: number[], optimalHold: {hold: number[], ev: number}, cards: string[], paytable: Record<string, number>): {playerEV: number, optimalEV: number, difference: number, severity: string, color: string} {
   // Calculate player's expected value (simplified approximation)
   let playerEV = 0;
@@ -835,12 +970,131 @@ HOLD
 </div>
 </div>
 
-{/* Strategy Recommendation */}
+{/* Strategy Options Comparison */}
 <div className="bg-blue-50 rounded-lg p-4 mb-4">
-<h4 className="font-semibold text-blue-800 mb-2">💡 Optimal Strategy:</h4>
-<p className="text-blue-700">
-{getStrategyExplanation(cards, best, game)}
-</p>
+<h4 className="font-semibold text-blue-800 mb-3">💡 Strategy Analysis & Options</h4>
+{(() => {
+const allOptions = getAllStrategyOptions(cards, paytable, game);
+const optimalOption = allOptions[0];
+return (
+<div className="space-y-3">
+{/* Optimal Choice */}
+<div className="bg-green-100 border border-green-300 rounded-lg p-3">
+<div className="flex items-center justify-between mb-2">
+<span className="font-bold text-green-800">🏆 OPTIMAL CHOICE</span>
+<span className="text-green-700 font-medium">EV: {optimalOption.ev.toFixed(3)}</span>
+</div>
+<div className="text-green-700">
+<div className="mb-1">
+<strong>Hold:</strong> {optimalOption.hold.length > 0 ? optimalOption.hold.map(i => cards[i]).join(", ") : "None (Draw 5)"}
+</div>
+<div className="text-sm">
+<strong>Why:</strong> {getStrategyExplanation(cards, best, game)}
+</div>
+</div>
+</div>
+
+{/* Alternative Options */}
+{allOptions.slice(1, 3).map((option, idx) => {
+const difference = optimalOption.ev - option.ev;
+let severityColor = difference <= 0.1 ? "yellow" : difference <= 0.5 ? "orange" : "red";
+return (
+<div key={idx} className={`bg-${severityColor}-50 border border-${severityColor}-200 rounded-lg p-3`}>
+<div className="flex items-center justify-between mb-2">
+<span className={`font-medium text-${severityColor}-800`}>#{idx + 2} Alternative</span>
+<div className="text-right text-sm">
+<div className={`text-${severityColor}-700 font-medium`}>EV: {option.ev.toFixed(3)}</div>
+<div className={`text-${severityColor}-600 text-xs`}>Cost: -{difference.toFixed(3)}</div>
+</div>
+</div>
+<div className={`text-${severityColor}-700 text-sm`}>
+<strong>Hold:</strong> {option.hold.length > 0 ? option.hold.map(i => cards[i]).join(", ") : "None"} - {option.description}
+</div>
+</div>
+);
+})}
+
+{/* Detailed Strategic Reasoning */}
+<div className="bg-gray-50 rounded-lg p-3 mt-3">
+<h5 className="font-semibold text-gray-800 mb-2">📋 Strategic Reasoning:</h5>
+<div className="text-sm text-gray-700 space-y-1">
+{(() => {
+  const currentHand = evaluate5(cards, paytable);
+  const ranks = cards.map(rank);
+  const suits = cards.map(suit);
+  
+  if (currentHand.payout > 0) {
+    return (
+      <div>
+        <div>• <strong>Current Hand:</strong> {currentHand.name} (pays {currentHand.payout}x)</div>
+        <div>• <strong>Decision:</strong> Hold paying hand - guaranteed return beats any draw</div>
+        <div>• <strong>Risk:</strong> Zero risk vs. uncertain improvement from draws</div>
+      </div>
+    );
+  }
+  
+  // Check for draws
+  const suitCounts: {[key: string]: number} = {};
+  suits.forEach(s => suitCounts[s] = (suitCounts[s] || 0) + 1);
+  const flushDraw = Object.values(suitCounts).some(count => count === 4);
+  
+  const pairs: number[] = [];
+  const rankCounts: {[key: string]: number[]} = {};
+  ranks.forEach((r, i) => {
+    if (!rankCounts[r]) rankCounts[r] = [];
+    rankCounts[r].push(i);
+  });
+  
+  for (const positions of Object.values(rankCounts)) {
+    if (positions.length === 2) {
+      pairs.push(...positions);
+      break;
+    }
+  }
+  
+  const highCards = [0,1,2,3,4].filter(i => ['J', 'Q', 'K', 'A'].includes(ranks[i]));
+  
+  if (flushDraw) {
+    return (
+      <div>
+        <div>• <strong>4-Card Flush Draw:</strong> 9 cards complete flush (19% chance)</div>
+        <div>• <strong>Why Better:</strong> Flush pays {paytable.FLUSH}x, much higher than pair attempts</div>
+        <div>• <strong>Math:</strong> 9/47 × {paytable.FLUSH} = {(9/47 * paytable.FLUSH).toFixed(2)} EV vs {(1/47).toFixed(2)} for random pair</div>
+      </div>
+    );
+  } else if (pairs.length === 2) {
+    const pairRank = ranks[pairs[0]];
+    const isHighPair = ['J', 'Q', 'K', 'A'].includes(pairRank);
+    return (
+      <div>
+        <div>• <strong>Pair Strategy:</strong> {pairRank} pair {isHighPair ? "(high)" : "(low)"}</div>
+        <div>• <strong>Improvement Odds:</strong> ~11% for trips, ~16% for two pair or better</div>
+        <div>• <strong>Why Hold:</strong> {isHighPair ? "Immediate 1x payout + improvement potential" : "No immediate payout but 27% improvement chance"}</div>
+      </div>
+    );
+  } else if (highCards.length > 0) {
+    return (
+      <div>
+        <div>• <strong>High Cards:</strong> {highCards.map(i => ranks[i]).join(", ")} give pair potential</div>
+        <div>• <strong>Pair Odds:</strong> ~13% chance per high card to pair up</div>
+        <div>• <strong>Strategy:</strong> {game.includes("Double") ? "In bonus games, Aces are especially valuable for jackpot potential" : "Any J+ pair pays 1-for-1"}</div>
+      </div>
+    );
+  } else {
+    return (
+      <div>
+        <div>• <strong>No Draws Found:</strong> Hand has no profitable holding patterns</div>
+        <div>• <strong>Best Option:</strong> Draw 5 fresh cards for maximum potential</div>
+        <div>• <strong>Expected Value:</strong> ~30% return from random 5-card hands</div>
+      </div>
+    );
+  }
+})()}
+</div>
+</div>
+</div>
+);
+})()}
 </div>
 
 {/* Interactive Hold Testing */}

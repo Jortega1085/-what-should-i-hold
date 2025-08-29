@@ -440,6 +440,78 @@ if (bestHold.hold.length === 0) {
 return `Hold ${bestHold.hold.length} cards with expected value: ${bestHold.ev.toFixed(2)}`;
 }
 
+function calculateMistakeSeverity(playerHold: number[], optimalHold: {hold: number[], ev: number}, cards: string[], paytable: Record<string, number>): {playerEV: number, optimalEV: number, difference: number, severity: string, color: string} {
+  // Calculate player's expected value (simplified approximation)
+  let playerEV = 0;
+  if (playerHold.length === 5) {
+    // Holding all cards - get current hand value
+    playerEV = evaluate5(cards, paytable).payout;
+  } else if (playerHold.length === 0) {
+    // Drawing all 5 - very rough approximation
+    playerEV = 0.2;
+  } else {
+    // Simplified calculation based on what they're holding
+    const heldCards = playerHold.map(i => cards[i]);
+    const heldRanks = heldCards.map(rank);
+    const heldSuits = heldCards.map(suit);
+    
+    // Check for pairs in held cards
+    const rankCounts: {[key: string]: number} = {};
+    heldRanks.forEach(r => rankCounts[r] = (rankCounts[r] || 0) + 1);
+    
+    const pairs = Object.entries(rankCounts).filter(([rank, count]) => count === 2);
+    const trips = Object.entries(rankCounts).filter(([rank, count]) => count === 3);
+    
+    if (trips.length > 0) {
+      playerEV = 3; // Three of a kind base
+    } else if (pairs.length > 0) {
+      const pairRank = pairs[0][0];
+      const pairValue = RANK_ORDER[pairRank] || 0;
+      if (pairValue >= 11) {
+        playerEV = 1; // Jacks or better
+      } else {
+        playerEV = 0.8; // Low pair
+      }
+    } else if (new Set(heldSuits).size === 1 && heldCards.length === 4) {
+      playerEV = 2.3; // 4-card flush
+    } else if (heldCards.some(c => ['J', 'Q', 'K', 'A'].includes(rank(c)))) {
+      playerEV = 0.3 * heldCards.filter(c => ['J', 'Q', 'K', 'A'].includes(rank(c))).length;
+    } else {
+      playerEV = 0.2; // Nothing good
+    }
+  }
+  
+  const difference = optimalHold.ev - playerEV;
+  
+  let severity = "";
+  let color = "";
+  
+  if (difference <= 0.05) {
+    severity = "Excellent";
+    color = "text-green-600";
+  } else if (difference <= 0.2) {
+    severity = "Minor mistake";
+    color = "text-yellow-600";
+  } else if (difference <= 0.5) {
+    severity = "Moderate mistake";
+    color = "text-orange-600";
+  } else if (difference <= 1.0) {
+    severity = "Major mistake";
+    color = "text-red-600";
+  } else {
+    severity = "Severe mistake";
+    color = "text-red-800";
+  }
+  
+  return {
+    playerEV,
+    optimalEV: optimalHold.ev,
+    difference,
+    severity,
+    color
+  };
+}
+
 
 export default function App() {
 const [mode, setMode] = useState<"training" | "analysis">("training");
@@ -584,12 +656,33 @@ HOLD
 <motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} className="bg-white rounded-2xl shadow p-5">
 <div className="text-lg font-semibold mb-2">Last Hands</div>
 {history.length === 0 && <div className="text-gray-500 text-sm">No hands yet.</div>}
-{history.map((h, idx) => (
-<div key={idx} className="mb-2 text-sm">
-<div>Cards: {h.cards.join(", ")}</div>
-<div>Your Hold: {h.playerHold.map((i: number)=>h.cards[i]).join(", ")} | Best Hold: {h.bestHold.map((i: number)=>h.cards[i]).join(", ")} | {h.correct ? "✅ Correct" : "❌ Incorrect"}</div>
+{history.map((h, idx) => {
+const mistake = calculateMistakeSeverity(h.playerHold, {hold: h.bestHold, ev: 0}, h.cards, paytable);
+return (
+<div key={idx} className="mb-3 p-3 bg-gray-50 rounded-lg text-sm">
+<div className="mb-1"><strong>Cards:</strong> {h.cards.join(", ")}</div>
+<div className="mb-1">
+<strong>Your Hold:</strong> {h.playerHold.length > 0 ? h.playerHold.map((i: number)=>h.cards[i]).join(", ") : "None"} 
+<span className="mx-2">|</span> 
+<strong>Optimal:</strong> {h.bestHold.length > 0 ? h.bestHold.map((i: number)=>h.cards[i]).join(", ") : "None"}
 </div>
-))}
+<div className="flex items-center gap-4">
+<span className={h.correct ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
+{h.correct ? "✅ Correct" : "❌ Incorrect"}
+</span>
+{!h.correct && (
+<div className="flex gap-4 text-xs">
+<span>Your EV: {mistake.playerEV.toFixed(2)}</span>
+<span>Optimal EV: {mistake.optimalEV.toFixed(2)}</span>
+<span className={`font-medium ${mistake.color}`}>
+Cost: -{mistake.difference.toFixed(2)} ({mistake.severity})
+</span>
+</div>
+)}
+</div>
+</div>
+);
+})}
 </motion.div>
 
 </div>
@@ -748,6 +841,80 @@ HOLD
 <p className="text-blue-700">
 {getStrategyExplanation(cards, best, game)}
 </p>
+</div>
+
+{/* Interactive Hold Testing */}
+<div className="bg-yellow-50 rounded-lg p-4 mb-4">
+<h4 className="font-semibold text-yellow-800 mb-3">🧪 Test Your Hold vs Optimal</h4>
+<div className="mb-3">
+<p className="text-sm text-yellow-700 mb-2">Click cards below to test different hold strategies:</p>
+<div className="flex gap-2 flex-wrap">
+{cards.map((c, i) => {
+const cardRank = rank(c);
+const cardSuit = suit(c);
+const colorClass = getCardColor(cardSuit);
+const isHeld = playerHold.includes(i);
+return (
+<button
+  key={i}
+  onClick={() => {
+    if (isHeld) {
+      setPlayerHold(ph => ph.filter(x => x !== i));
+    } else {
+      setPlayerHold(ph => [...ph, i]);
+    }
+  }}
+  className={`w-12 h-16 rounded border-2 transition-all text-xs ${
+    isHeld 
+      ? "border-purple-500 bg-purple-50" 
+      : "border-gray-300 bg-white hover:border-purple-300"
+  }`}
+>
+<div className={`${colorClass}`}>
+<div className="font-bold">{cardRank}</div>
+<div>{cardSuit}</div>
+</div>
+{isHeld && <div className="text-purple-600 text-xs font-bold">HOLD</div>}
+</button>
+);
+})}
+</div>
+<button 
+  onClick={() => setPlayerHold([])}
+  className="mt-2 px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600"
+>
+Clear Holds
+</button>
+</div>
+
+{/* Comparison Results */}
+{playerHold.length > 0 && (
+<div className="border-t pt-3">
+{(() => {
+const comparison = calculateMistakeSeverity(playerHold, best, cards, paytable);
+return (
+<div className="grid grid-cols-2 gap-4 text-sm">
+<div className="space-y-1">
+<div><strong>Your Hold:</strong> {playerHold.map(i => cards[i]).join(", ")}</div>
+<div><strong>Your Expected Value:</strong> {comparison.playerEV.toFixed(3)}</div>
+</div>
+<div className="space-y-1">
+<div><strong>Optimal Hold:</strong> {best.hold.map(i => cards[i]).join(", ")}</div>
+<div><strong>Optimal Expected Value:</strong> {comparison.optimalEV.toFixed(3)}</div>
+</div>
+<div className="col-span-2 pt-2 border-t">
+<div className={`text-center font-bold ${comparison.color}`}>
+{comparison.difference <= 0.05 ? 
+  "🎉 Excellent choice!" :
+  `⚠️  ${comparison.severity}: -${comparison.difference.toFixed(3)} expected value`
+}
+</div>
+</div>
+</div>
+);
+})()}
+</div>
+)}
 </div>
 
 {/* Hand Information */}

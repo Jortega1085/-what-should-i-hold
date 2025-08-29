@@ -475,16 +475,16 @@ function FullDeckPicker({
                 const cardSuit = suit(card);
                 const colorClass = getCardColor(cardSuit);
                 return (
-                  <div key={card} className="w-12 h-18 bg-white border-2 border-blue-500 rounded-lg text-sm flex flex-col items-center justify-center shadow-lg">
-                    <div className={`${colorClass} font-bold`}>{cardRank}</div>
-                    <div className={`${colorClass} text-lg`}>{cardSuit}</div>
+                  <div key={card} className="w-16 h-22 bg-white border-2 border-blue-500 rounded-lg text-base flex flex-col items-center justify-center shadow-lg">
+                    <div className={`${colorClass} font-bold text-lg`}>{cardRank}</div>
+                    <div className={`${colorClass} text-2xl`}>{cardSuit}</div>
                   </div>
                 );
               })}
               {/* Empty slots */}
               {Array(5 - selectedCards.length).fill(0).map((_, i) => (
-                <div key={`empty-${i}`} className="w-12 h-18 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center text-gray-400">
-                  <span className="text-2xl">?</span>
+                <div key={`empty-${i}`} className="w-16 h-22 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center text-gray-400">
+                  <span className="text-3xl">?</span>
                 </div>
               ))}
             </div>
@@ -500,7 +500,7 @@ function FullDeckPicker({
                  suitType === "♥" ? "♥ Hearts" : 
                  suitType === "♦" ? "♦ Diamonds" : "♣ Clubs"}
               </div>
-              <div className="grid grid-cols-13 gap-2">
+              <div className="flex gap-2 flex-wrap justify-center">
                 {RANKS.map(rankType => {
                   const cardCode = rankType + suitType;
                   const isSelected = selectedCards.includes(cardCode);
@@ -516,16 +516,16 @@ function FullDeckPicker({
                         }
                       }}
                       disabled={!isSelected && selectedCards.length >= 5}
-                      className={`w-12 h-16 rounded-lg border-2 transition-all font-bold text-sm flex flex-col items-center justify-center ${
+                      className={`w-16 h-22 rounded-lg border-2 transition-all font-bold text-base flex flex-col items-center justify-center shadow-sm ${
                         isSelected 
-                          ? "border-blue-500 bg-blue-100 shadow-lg transform scale-105" 
+                          ? "border-blue-500 bg-blue-100 shadow-lg transform scale-110" 
                           : selectedCards.length >= 5
                           ? "border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed"
-                          : `border-gray-300 bg-white hover:border-blue-300 hover:shadow-md ${colorClass}`
+                          : `border-gray-300 bg-white hover:border-blue-400 hover:shadow-lg hover:scale-105 ${colorClass}`
                       }`}
                     >
-                      <div className="text-xs">{rankType}</div>
-                      <div className="text-lg">{suitType}</div>
+                      <div className="text-lg font-bold">{rankType}</div>
+                      <div className="text-2xl">{suitType}</div>
                     </button>
                   );
                 })}

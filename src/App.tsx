@@ -784,6 +784,7 @@ function calculateMistakeSeverity(playerHold: number[], optimalHold: {hold: numb
 
 export default function App() {
 const [mode, setMode] = useState<"training" | "analysis">("training");
+const [theme, setTheme] = useState<"light" | "dark" | "casino">("light");
 const [cards, setCards] = useState<string[]>(["A♠","K♠","Q♠","J♠","10♠"]);
 const [game, setGame] = useState("Jacks or Better 9/6");
 const [playerHold, setPlayerHold] = useState<number[]>([]);
@@ -793,6 +794,51 @@ const [showFullDeckPicker, setShowFullDeckPicker] = useState(false);
 const [tempSelectedCards, setTempSelectedCards] = useState<string[]>([]);
 
 const paytable = PAYTABLES[game];
+
+// Theme configurations
+const themes = {
+  light: {
+    bg: "bg-gradient-to-br from-blue-50 to-indigo-100",
+    cardBg: "bg-white",
+    primaryBtn: "bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800",
+    secondaryBtn: "bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-700 hover:to-gray-800",
+    successBtn: "bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800",
+    dangerBtn: "bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800",
+    panel: "bg-white/80 backdrop-blur-sm",
+    text: "text-gray-900",
+    textMuted: "text-gray-600",
+    border: "border-gray-200",
+    shadow: "shadow-xl",
+  },
+  dark: {
+    bg: "bg-gradient-to-br from-gray-900 to-black",
+    cardBg: "bg-gray-800",
+    primaryBtn: "bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700",
+    secondaryBtn: "bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700",
+    successBtn: "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700",
+    dangerBtn: "bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700",
+    panel: "bg-gray-800/90 backdrop-blur-sm border-gray-700",
+    text: "text-white",
+    textMuted: "text-gray-300",
+    border: "border-gray-600",
+    shadow: "shadow-2xl shadow-black/50",
+  },
+  casino: {
+    bg: "bg-gradient-to-br from-green-900 via-green-800 to-emerald-900",
+    cardBg: "bg-white",
+    primaryBtn: "bg-gradient-to-r from-yellow-500 to-amber-600 hover:from-yellow-600 hover:to-amber-700",
+    secondaryBtn: "bg-gradient-to-r from-green-700 to-emerald-800 hover:from-green-600 hover:to-emerald-700",
+    successBtn: "bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700",
+    dangerBtn: "bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800",
+    panel: "bg-green-800/20 backdrop-blur-md border-green-600/30",
+    text: "text-white",
+    textMuted: "text-green-100",
+    border: "border-green-500/50",
+    shadow: "shadow-2xl shadow-green-900/50",
+  }
+};
+
+const currentTheme = themes[theme];
 
 function dealRandom() {
 const deck = makeDeck();
@@ -847,30 +893,53 @@ dealRandom();
 }
 
 return (
-<div className="min-h-screen bg-gray-50 p-6">
-<div className="max-w-4xl mx-auto">
-<motion.h1 initial={{opacity:0,y:-8}} animate={{opacity:1,y:0}} className="text-3xl font-bold mb-4">
-What Should I Hold?
+<div className={`min-h-screen p-6 transition-all duration-500 ${currentTheme.bg}`}>
+<div className="max-w-5xl mx-auto">
+{/* Header with Theme Toggle */}
+<div className="flex items-center justify-between mb-6">
+<motion.h1 initial={{opacity:0,y:-8}} animate={{opacity:1,y:0}} className={`text-4xl font-bold ${currentTheme.text}`}>
+🎰 What Should I Hold?
 </motion.h1>
 
+{/* Theme Selector */}
+<div className="flex gap-2">
+{(["light", "dark", "casino"] as const).map(themeOption => (
+<button
+  key={themeOption}
+  onClick={() => setTheme(themeOption)}
+  className={`px-3 py-2 rounded-lg font-medium transition-all duration-300 ${
+    theme === themeOption
+      ? themeOption === "light" ? "bg-blue-600 text-white shadow-lg" :
+        themeOption === "dark" ? "bg-purple-600 text-white shadow-lg" :
+        "bg-yellow-600 text-white shadow-lg"
+      : `${currentTheme.panel} ${currentTheme.textMuted} hover:scale-105`
+  }`}
+>
+  {themeOption === "light" ? "☀️ Light" : 
+   themeOption === "dark" ? "🌙 Dark" : "🎰 Casino"}
+</button>
+))}
+</div>
+</div>
+
 {/* Mode Toggle */}
-<div className="flex gap-2 mb-6">
+<div className="flex gap-3 mb-8">
 <button 
   onClick={() => setMode("training")}
-  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+  className={`px-6 py-3 rounded-xl font-bold transition-all duration-300 ${
     mode === "training" 
-      ? "bg-blue-600 text-white shadow-md" 
-      : "bg-white text-gray-600 border hover:bg-gray-50"
+      ? `${currentTheme.primaryBtn} text-white ${currentTheme.shadow} transform scale-105` 
+      : `${currentTheme.panel} ${currentTheme.textMuted} hover:scale-105 ${currentTheme.border} border`
   }`}
 >
   🎯 Training Mode
 </button>
 <button 
   onClick={() => setMode("analysis")}
-  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+  className={`px-6 py-3 rounded-xl font-bold transition-all duration-300 ${
     mode === "analysis" 
-      ? "bg-green-600 text-white shadow-md" 
-      : "bg-white text-gray-600 border hover:bg-gray-50"
+      ? `${currentTheme.successBtn} text-white ${currentTheme.shadow} transform scale-105` 
+      : `${currentTheme.panel} ${currentTheme.textMuted} hover:scale-105 ${currentTheme.border} border`
   }`}
 >
   🔍 Hand Analysis
@@ -882,9 +951,9 @@ What Should I Hold?
 {/* Training Mode Content */}
 
 
-<div className="mb-4">
-<label className="mr-2 font-semibold">Game:</label>
-<select value={game} onChange={e=>setGame(e.target.value)} className="border rounded px-2 py-1">
+<div className={`${currentTheme.panel} rounded-xl p-6 mb-6 ${currentTheme.border} border ${currentTheme.shadow}`}>
+<label className={`mr-3 font-bold text-lg ${currentTheme.text}`}>Game Variant:</label>
+<select value={game} onChange={e=>setGame(e.target.value)} className={`${currentTheme.panel} ${currentTheme.text} border rounded-lg px-4 py-2 font-medium ${currentTheme.border}`}>
 {Object.keys(PAYTABLES).map(g => <option key={g} value={g}>{g}</option>)}
 </select>
 </div>
@@ -897,7 +966,7 @@ const colorClass = getCardColor(cardSuit);
 return (
 <div key={i} className="flex flex-col items-center gap-2">
 <div className="text-sm text-gray-500">Card {i+1}</div>
-<button onClick={()=>toggleHold(i)} className={`relative w-16 h-24 rounded-lg border-2 bg-white shadow-lg transition-all duration-200 hover:shadow-xl ${playerHold.includes(i)?"border-green-500 bg-green-50":"border-gray-300 hover:border-gray-400"}`}>
+<button onClick={()=>toggleHold(i)} className={`relative w-16 h-24 rounded-xl border-2 ${currentTheme.cardBg} ${currentTheme.shadow} transition-all duration-300 hover:shadow-2xl hover:scale-105 ${playerHold.includes(i)?"border-green-500 bg-green-100":"border-gray-300 hover:border-blue-400"}`}>
 <div className={`flex flex-col items-center justify-center h-full ${colorClass}`}>
 <div className="text-lg font-bold">{cardRank}</div>
 <div className="text-xl">{cardSuit}</div>
@@ -913,18 +982,18 @@ HOLD
 })}
 </div>
 
-<div className="flex gap-3 mb-6">
-<button onClick={dealRandom} className="px-4 py-2 rounded-2xl bg-black text-white shadow">Deal Random</button>
-<button onClick={submitHold} className="px-4 py-2 rounded-2xl bg-blue-600 text-white shadow">Submit Hold</button>
+<div className="flex gap-4 mb-8">
+<button onClick={dealRandom} className={`px-6 py-3 rounded-xl text-white font-bold transition-all duration-300 hover:scale-105 ${currentTheme.secondaryBtn} ${currentTheme.shadow}`}>🎲 Deal Random</button>
+<button onClick={submitHold} className={`px-6 py-3 rounded-xl text-white font-bold transition-all duration-300 hover:scale-105 ${currentTheme.primaryBtn} ${currentTheme.shadow}`}>✅ Submit Hold</button>
 </div>
 
-<div className="mb-6">
-<div>Score: {score.correct}/{score.played} correct</div>
+<div className={`${currentTheme.panel} rounded-xl p-4 mb-6 ${currentTheme.border} border ${currentTheme.shadow}`}>
+<div className={`text-xl font-bold ${currentTheme.text}`}>🏆 Score: {score.correct}/{score.played} correct ({score.played > 0 ? Math.round((score.correct/score.played)*100) : 0}%)</div>
 </div>
 
-<motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} className="bg-white rounded-2xl shadow p-5">
-<div className="text-lg font-semibold mb-2">Last Hands</div>
-{history.length === 0 && <div className="text-gray-500 text-sm">No hands yet.</div>}
+<motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} className={`${currentTheme.panel} rounded-2xl ${currentTheme.shadow} p-6 ${currentTheme.border} border`}>
+<div className={`text-xl font-bold mb-4 ${currentTheme.text}`}>🎯 Recent Hands</div>
+{history.length === 0 && <div className={`${currentTheme.textMuted} text-sm`}>No hands yet.</div>}
 {history.map((h, idx) => {
 const mistake = calculateMistakeSeverity(h.playerHold, {hold: h.bestHold, ev: 0}, h.cards, paytable);
 return (

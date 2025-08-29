@@ -910,7 +910,6 @@ Close
 </div>
 )}
 
-<div className="flex gap-3 mb-4">
 <button 
   onClick={() => {
     const deck = makeDeck();
@@ -921,23 +920,10 @@ Close
     }
     setCards(shuffled.slice(0,5));
   }} 
-  className="px-4 py-2 rounded-lg bg-gray-600 text-white shadow hover:bg-gray-700"
+  className="w-full px-4 py-2 rounded-lg bg-gray-600 text-white hover:bg-gray-700 mb-4"
 >
-  🎲 Random Hand
+  🎲 Generate Random Hand
 </button>
-<button 
-  onClick={() => setCards(["A♠","K♠","Q♠","J♠","10♠"])} 
-  className="px-4 py-2 rounded-lg bg-purple-600 text-white shadow hover:bg-purple-700"
->
-  👑 Royal Flush
-</button>
-<button 
-  onClick={() => setCards(["A♠","A♥","A♦","2♠","3♠"])} 
-  className="px-4 py-2 rounded-lg bg-orange-600 text-white shadow hover:bg-orange-700"
->
-  🎯 Trip Aces
-</button>
-</div>
 </div>
 
 {/* Analysis Results */}
@@ -982,7 +968,7 @@ return (
 <div className="bg-green-100 border border-green-300 rounded-lg p-3">
 <div className="flex items-center justify-between mb-2">
 <span className="font-bold text-green-800">🏆 OPTIMAL CHOICE</span>
-<span className="text-green-700 font-medium">EV: {optimalOption.ev.toFixed(3)}</span>
+<span className="text-green-700 font-medium">RTP: {(optimalOption.ev * 100).toFixed(1)}%</span>
 </div>
 <div className="text-green-700">
 <div className="mb-1">
@@ -1003,8 +989,8 @@ return (
 <div className="flex items-center justify-between mb-2">
 <span className={`font-medium text-${severityColor}-800`}>#{idx + 2} Alternative</span>
 <div className="text-right text-sm">
-<div className={`text-${severityColor}-700 font-medium`}>EV: {option.ev.toFixed(3)}</div>
-<div className={`text-${severityColor}-600 text-xs`}>Cost: -{difference.toFixed(3)}</div>
+<div className={`text-${severityColor}-700 font-medium`}>RTP: {(option.ev * 100).toFixed(1)}%</div>
+<div className={`text-${severityColor}-600 text-xs`}>Cost: -{(difference * 100).toFixed(1)}%</div>
 </div>
 </div>
 <div className={`text-${severityColor}-700 text-sm`}>

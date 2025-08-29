@@ -440,6 +440,140 @@ if (bestHold.hold.length === 0) {
 return `Hold ${bestHold.hold.length} cards with expected value: ${bestHold.ev.toFixed(2)}`;
 }
 
+function FullDeckPicker({
+  isOpen,
+  onClose,
+  onSelectCards,
+  selectedCards,
+  setSelectedCards
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onSelectCards: (cards: string[]) => void;
+  selectedCards: string[];
+  setSelectedCards: (cards: string[]) => void;
+}) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl p-6 max-w-6xl w-full max-h-full overflow-y-auto">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-2xl font-bold">🃏 Select Your 5-Card Hand</h3>
+          <div className="text-xl font-medium text-blue-600">
+            Selected: {selectedCards.length}/5
+          </div>
+        </div>
+
+        {/* Selected Cards Preview */}
+        {selectedCards.length > 0 && (
+          <div className="mb-6 p-4 bg-blue-50 rounded-lg">
+            <h4 className="font-medium mb-3">Your Selected Hand:</h4>
+            <div className="flex gap-3 justify-center">
+              {selectedCards.map(card => {
+                const cardRank = rank(card);
+                const cardSuit = suit(card);
+                const colorClass = getCardColor(cardSuit);
+                return (
+                  <div key={card} className="w-12 h-18 bg-white border-2 border-blue-500 rounded-lg text-sm flex flex-col items-center justify-center shadow-lg">
+                    <div className={`${colorClass} font-bold`}>{cardRank}</div>
+                    <div className={`${colorClass} text-lg`}>{cardSuit}</div>
+                  </div>
+                );
+              })}
+              {/* Empty slots */}
+              {Array(5 - selectedCards.length).fill(0).map((_, i) => (
+                <div key={`empty-${i}`} className="w-12 h-18 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center text-gray-400">
+                  <span className="text-2xl">?</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Full Deck by Suits */}
+        <div className="space-y-4">
+          {SUITS.map(suitType => (
+            <div key={suitType} className="border-2 rounded-lg p-4">
+              <div className={`text-center text-2xl mb-3 font-bold ${getCardColor(suitType)}`}>
+                {suitType === "♠" ? "♠ Spades" : 
+                 suitType === "♥" ? "♥ Hearts" : 
+                 suitType === "♦" ? "♦ Diamonds" : "♣ Clubs"}
+              </div>
+              <div className="grid grid-cols-13 gap-2">
+                {RANKS.map(rankType => {
+                  const cardCode = rankType + suitType;
+                  const isSelected = selectedCards.includes(cardCode);
+                  const colorClass = getCardColor(suitType);
+                  return (
+                    <button
+                      key={cardCode}
+                      onClick={() => {
+                        if (isSelected) {
+                          setSelectedCards(selectedCards.filter(c => c !== cardCode));
+                        } else if (selectedCards.length < 5) {
+                          setSelectedCards([...selectedCards, cardCode]);
+                        }
+                      }}
+                      disabled={!isSelected && selectedCards.length >= 5}
+                      className={`w-12 h-16 rounded-lg border-2 transition-all font-bold text-sm flex flex-col items-center justify-center ${
+                        isSelected 
+                          ? "border-blue-500 bg-blue-100 shadow-lg transform scale-105" 
+                          : selectedCards.length >= 5
+                          ? "border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed"
+                          : `border-gray-300 bg-white hover:border-blue-300 hover:shadow-md ${colorClass}`
+                      }`}
+                    >
+                      <div className="text-xs">{rankType}</div>
+                      <div className="text-lg">{suitType}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-4 mt-6 pt-4 border-t bg-white sticky bottom-0">
+          <button 
+            onClick={() => {
+              if (selectedCards.length === 5) {
+                onSelectCards([...selectedCards]);
+                setSelectedCards([]);
+                onClose();
+              }
+            }}
+            disabled={selectedCards.length !== 5}
+            className={`px-8 py-3 rounded-lg font-bold text-lg ${
+              selectedCards.length === 5 
+                ? "bg-green-600 text-white hover:bg-green-700 shadow-lg" 
+                : "bg-gray-300 text-gray-500 cursor-not-allowed"
+            }`}
+          >
+            ✅ Analyze This Hand
+          </button>
+          <button 
+            onClick={() => {
+              setSelectedCards([]);
+              onClose();
+            }}
+            className="px-6 py-3 rounded-lg bg-gray-600 text-white hover:bg-gray-700"
+          >
+            Cancel
+          </button>
+          <button 
+            onClick={() => setSelectedCards([])}
+            className="px-4 py-3 rounded-lg bg-red-600 text-white hover:bg-red-700"
+          >
+            Clear All ({selectedCards.length})
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function getAllStrategyOptions(cards: string[], paytable: Record<string, number>, game: string): {hold: number[], ev: number, description: string}[] {
   const options: {hold: number[], ev: number, description: string}[] = [];
   
@@ -655,8 +789,8 @@ const [game, setGame] = useState("Jacks or Better 9/6");
 const [playerHold, setPlayerHold] = useState<number[]>([]);
 const [score, setScore] = useState({played:0, correct:0});
 const [history, setHistory] = useState<any[]>([]);
-const [selectedPosition, setSelectedPosition] = useState<number | null>(null);
-const [showCardPicker, setShowCardPicker] = useState(false);
+const [showFullDeckPicker, setShowFullDeckPicker] = useState(false);
+const [tempSelectedCards, setTempSelectedCards] = useState<string[]>([]);
 
 const paytable = PAYTABLES[game];
 
@@ -832,83 +966,43 @@ Cost: -{mistake.difference.toFixed(2)} ({mistake.severity})
 </div>
 
 <div className="bg-white rounded-2xl shadow p-6 mb-6">
-<h3 className="text-xl font-bold mb-4">🔍 Hand Analysis - Select Your Cards</h3>
+<h3 className="text-xl font-bold mb-4">🔍 Current Hand Analysis</h3>
 <div className="grid grid-cols-5 gap-4 mb-6">
 {cards.map((card, i) => {
 const cardRank = rank(card);
 const cardSuit = suit(card);
 const colorClass = getCardColor(cardSuit);
+const isOptimal = best.hold.includes(i);
 return (
 <div key={i} className="flex flex-col items-center gap-2">
 <div className="text-sm text-gray-500 font-medium">Card {i+1}</div>
-<button 
-  onClick={() => {
-    setSelectedPosition(i);
-    setShowCardPicker(true);
-  }}
-  className="relative w-16 h-24 rounded-lg border-2 bg-white shadow-lg transition-all duration-200 hover:shadow-xl border-blue-300 hover:border-blue-500"
->
+<div className={`relative w-16 h-24 rounded-lg border-2 bg-white shadow-lg ${
+  isOptimal ? "border-green-500 bg-green-50" : "border-gray-300"
+}`}>
 <div className={`flex flex-col items-center justify-center h-full ${colorClass}`}>
 <div className="text-lg font-bold">{cardRank}</div>
 <div className="text-xl">{cardSuit}</div>
 </div>
-</button>
+{isOptimal && (
+<div className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 bg-green-600 text-white text-xs px-2 py-1 rounded font-bold">
+OPTIMAL
+</div>
+)}
+</div>
 </div>
 );
 })}
 </div>
 
-{/* Card Picker Modal */}
-{showCardPicker && selectedPosition !== null && (
-<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowCardPicker(false)}>
-<div className="bg-white rounded-2xl p-6 max-w-4xl max-h-96 overflow-y-auto" onClick={e => e.stopPropagation()}>
-<h4 className="text-lg font-bold mb-4">Select Card for Position {selectedPosition + 1}</h4>
-<div className="grid grid-cols-13 gap-2">
-{SUITS.map(suitType => (
-<div key={suitType} className="col-span-13">
-<div className="text-center text-lg mb-2">{suitType}</div>
-<div className="grid grid-cols-13 gap-1">
-{RANKS.map(rankType => {
-const cardCode = rankType + suitType;
-const isUsed = cards.includes(cardCode) && cards.indexOf(cardCode) !== selectedPosition;
-const colorClass = getCardColor(suitType);
-return (
-<button
-  key={cardCode}
-  onClick={() => {
-    if (!isUsed) {
-      const newCards = [...cards];
-      newCards[selectedPosition] = cardCode;
-      setCards(newCards);
-      setShowCardPicker(false);
-      setSelectedPosition(null);
-    }
-  }}
-  disabled={isUsed}
-  className={`w-8 h-12 text-xs rounded border transition-all ${
-    isUsed 
-      ? "bg-gray-200 text-gray-400 cursor-not-allowed" 
-      : `bg-white hover:bg-gray-50 border-gray-300 hover:border-blue-400 ${colorClass}`
-  }`}
->
-<div>{rankType}</div>
-<div className="text-sm">{suitType}</div>
-</button>
-);
-})}
-</div>
-</div>
-))}
-</div>
 <button 
-  onClick={() => setShowCardPicker(false)}
-  className="mt-4 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+  onClick={() => {
+    setTempSelectedCards([]);
+    setShowFullDeckPicker(true);
+  }}
+  className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 mb-4"
 >
-Close
+🃏 Select New Hand from Full Deck
 </button>
-</div>
-</div>
-)}
 
 <button 
   onClick={() => {
@@ -925,6 +1019,18 @@ Close
   🎲 Generate Random Hand
 </button>
 </div>
+
+{/* Full Deck Picker Component */}
+<FullDeckPicker
+  isOpen={showFullDeckPicker}
+  onClose={() => setShowFullDeckPicker(false)}
+  onSelectCards={(newCards) => {
+    setCards(newCards);
+    setPlayerHold([]);
+  }}
+  selectedCards={tempSelectedCards}
+  setSelectedCards={setTempSelectedCards}
+/>
 
 {/* Analysis Results */}
 <motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} className="bg-white rounded-2xl shadow p-6">

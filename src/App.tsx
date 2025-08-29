@@ -991,6 +991,56 @@ HOLD
 <div className={`text-xl font-bold ${currentTheme.text}`}>🏆 Score: {score.correct}/{score.played} correct ({score.played > 0 ? Math.round((score.correct/score.played)*100) : 0}%)</div>
 </div>
 
+{/* Hand Analysis in Training Mode */}
+<motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} className={`${currentTheme.panel} rounded-2xl ${currentTheme.shadow} p-6 ${currentTheme.border} border mb-6`}>
+<h3 className={`text-xl font-bold mb-4 ${currentTheme.text}`}>💡 Current Hand Analysis</h3>
+
+{/* Strategy Options Comparison */}
+{(() => {
+const allOptions = getAllStrategyOptions(cards, paytable, game);
+const optimalOption = allOptions[0];
+return (
+<div className="space-y-3">
+{/* Optimal Choice */}
+<div className="bg-green-100 border border-green-300 rounded-lg p-3">
+<div className="flex items-center justify-between mb-2">
+<span className="font-bold text-green-800">🏆 OPTIMAL CHOICE</span>
+<span className="text-green-700 font-medium">RTP: {(optimalOption.ev * 100).toFixed(1)}%</span>
+</div>
+<div className="text-green-700">
+<div className="mb-1">
+<strong>Hold:</strong> {optimalOption.hold.length > 0 ? optimalOption.hold.map(i => cards[i]).join(", ") : "None (Draw 5)"}
+</div>
+<div className="text-sm">
+<strong>Why:</strong> {getStrategyExplanation(cards, best, game)}
+</div>
+</div>
+</div>
+
+{/* Alternative Options */}
+{allOptions.slice(1, 3).map((option, idx) => {
+const difference = optimalOption.ev - option.ev;
+let severityColor = difference <= 0.1 ? "yellow" : difference <= 0.5 ? "orange" : "red";
+return (
+<div key={idx} className={`bg-${severityColor}-50 border border-${severityColor}-200 rounded-lg p-3`}>
+<div className="flex items-center justify-between mb-2">
+<span className={`font-medium text-${severityColor}-800`}>#{idx + 2} Alternative</span>
+<div className="text-right text-sm">
+<div className={`text-${severityColor}-700 font-medium`}>RTP: {(option.ev * 100).toFixed(1)}%</div>
+<div className={`text-${severityColor}-600 text-xs`}>Cost: -{(difference * 100).toFixed(1)}%</div>
+</div>
+</div>
+<div className={`text-${severityColor}-700 text-sm`}>
+<strong>Hold:</strong> {option.hold.length > 0 ? option.hold.map(i => cards[i]).join(", ") : "None"} - {option.description}
+</div>
+</div>
+);
+})}
+</div>
+);
+})()}
+</motion.div>
+
 <motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} className={`${currentTheme.panel} rounded-2xl ${currentTheme.shadow} p-6 ${currentTheme.border} border`}>
 <div className={`text-xl font-bold mb-4 ${currentTheme.text}`}>🎯 Recent Hands</div>
 {history.length === 0 && <div className={`${currentTheme.textMuted} text-sm`}>No hands yet.</div>}

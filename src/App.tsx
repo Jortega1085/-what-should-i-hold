@@ -326,8 +326,123 @@ function findStraightFlushDraw(cards: string[]): number[] {
   return [];
 }
 
+function CardInput({value, onChange}: {value: string, onChange: (v: string)=>void}) {
+const [local, setLocal] = useState(value);
+function normalize(v: string) {
+v = v.trim().toUpperCase()
+.replace(/S|♠/g,"♠")
+.replace(/H|♥/g,"♥")
+.replace(/D|♦/g,"♦")
+.replace(/C|♣/g,"♣");
+const m = v.match(/^([2-9TJQKA]|10)\s*([♠♥♦♣])$/);
+if(m) {
+  let rank = m[1];
+  if (rank === 'T') rank = '10'; // Convert T to 10
+  return rank + m[2];
+}
+return v;
+}
+return (
+<input
+className="w-20 px-3 py-2 rounded-lg border shadow-sm text-center text-lg font-mono"
+placeholder="A♠"
+value={local}
+onChange={(e)=>{
+  setLocal(e.target.value); 
+  const n = normalize(e.target.value); 
+  if(n.length >= 2 && makeDeck().includes(n)) onChange(n);
+}}
+/>
+);
+}
+
+function getStrategyExplanation(cards: string[], bestHold: {hold: number[], ev: number}, game: string): string {
+const currentHand = evaluate5(cards, PAYTABLES[game]);
+const heldCards = bestHold.hold.map(i => cards[i]);
+const ranks = cards.map(rank);
+const suits = cards.map(suit);
+
+// Made hands
+if (currentHand.payout > 0) {
+  if (currentHand.key === "ROYAL") return "🏆 Royal Flush! This is the highest paying hand - always hold all 5 cards.";
+  if (currentHand.key === "STRAIGHT_FLUSH") return "🔥 Straight Flush! Hold all 5 cards for the second highest payout.";
+  if (currentHand.key === "FOUR_KIND") return "💎 Four of a Kind! Hold all 5 cards for a guaranteed big payout.";
+  if (currentHand.key === "FULL_HOUSE") return "🏠 Full House! Hold all 5 cards - this pays well in all variants.";
+  if (currentHand.key === "FLUSH") return "🌊 Flush! Hold all 5 cards for a solid payout.";
+  if (currentHand.key === "STRAIGHT") return "📈 Straight! Hold all 5 cards for a decent payout.";
+  if (currentHand.key === "THREE_KIND") return `🎯 Three of a Kind (${ranks[bestHold.hold[0]]}s)! Hold the three matching cards and draw 2 new ones.`;
+  if (currentHand.key === "TWO_PAIR") return "👥 Two Pair! Hold both pairs and draw 1 card for the full house chance.";
+  if (currentHand.key === "JacksOrBetter") return `👑 Pair of ${ranks[bestHold.hold[0]]}s! This pair pays 1-for-1. Hold the pair and draw 3 cards.`;
+}
+
+// Draw situations
+if (bestHold.hold.length === 4) {
+  const heldSuits = bestHold.hold.map(i => suits[i]);
+  const heldRanks = bestHold.hold.map(i => ranks[i]);
+  
+  // 4-card flush
+  if (new Set(heldSuits).size === 1) {
+    return `🌊 4-Card Flush Draw (${heldSuits[0]})! You have a 19% chance (9/47 cards) to complete the flush. Expected value: ${bestHold.ev.toFixed(2)}`;
+  }
+  
+  // 4-card straight
+  const sortedValues = heldRanks.map(r => RANK_ORDER[r]).sort((a,b) => b-a);
+  let isConsecutive = true;
+  for (let i = 1; i < sortedValues.length; i++) {
+    if (sortedValues[i-1] - sortedValues[i] !== 1) {
+      isConsecutive = false;
+      break;
+    }
+  }
+  if (isConsecutive) {
+    return `📈 4-Card Straight Draw! You need 8 cards to complete the straight. Expected value: ${bestHold.ev.toFixed(2)}`;
+  }
+}
+
+if (bestHold.hold.length === 3) {
+  const heldRanks = bestHold.hold.map(i => ranks[i]);
+  const heldSuits = bestHold.hold.map(i => suits[i]);
+  
+  // 3-card royal
+  const royals = ['10', 'J', 'Q', 'K', 'A'];
+  if (new Set(heldSuits).size === 1 && heldRanks.every(r => royals.includes(r))) {
+    return `👑 3-Card Royal Flush Draw! You have a chance at the royal flush (2 cards) or other strong hands. Expected value: ${bestHold.ev.toFixed(2)}`;
+  }
+}
+
+// High cards
+if (bestHold.hold.length <= 2 && bestHold.hold.length > 0) {
+  const heldRanks = bestHold.hold.map(i => ranks[i]);
+  const highCards = heldRanks.filter(r => ['J', 'Q', 'K', 'A'].includes(r));
+  
+  if (highCards.length > 0) {
+    if (game === "Double Double Bonus" && heldRanks.includes('A')) {
+      return `🎯 Hold the Ace(s)! In Double Double Bonus, Aces are especially valuable for bonus payouts. Expected value: ${bestHold.ev.toFixed(2)}`;
+    }
+    return `👑 Hold High Card(s): ${heldRanks.join(', ')}. These can form paying pairs (Jacks or Better). Expected value: ${bestHold.ev.toFixed(2)}`;
+  }
+  
+  // Low pair
+  const pairRank = heldRanks[0];
+  if (heldRanks.length === 2 && heldRanks[0] === heldRanks[1]) {
+    if (game === "Double Double Bonus") {
+      return `🎲 Low Pair (${pairRank}s) in Double Double Bonus. Low pairs can improve to trips or full house, and sometimes beat high card draws. Expected value: ${bestHold.ev.toFixed(2)}`;
+    }
+    return `🎲 Low Pair (${pairRank}s). While this doesn't pay now, it can improve to trips or better. Expected value: ${bestHold.ev.toFixed(2)}`;
+  }
+}
+
+// Draw 5
+if (bestHold.hold.length === 0) {
+  return `🎲 Draw 5 New Cards! No profitable holds found. This gives you a fresh chance at any hand. Expected value: ${bestHold.ev.toFixed(2)}`;
+}
+
+return `Hold ${bestHold.hold.length} cards with expected value: ${bestHold.ev.toFixed(2)}`;
+}
+
 
 export default function App() {
+const [mode, setMode] = useState<"training" | "analysis">("training");
 const [cards, setCards] = useState<string[]>(["A♠","K♠","Q♠","J♠","10♠"]);
 const [game, setGame] = useState("Jacks or Better 9/6");
 const [playerHold, setPlayerHold] = useState<number[]>([]);
@@ -391,9 +506,37 @@ dealRandom();
 return (
 <div className="min-h-screen bg-gray-50 p-6">
 <div className="max-w-4xl mx-auto">
-<motion.h1 initial={{opacity:0,y:-8}} animate={{opacity:1,y:0}} className="text-3xl font-bold mb-2">
+<motion.h1 initial={{opacity:0,y:-8}} animate={{opacity:1,y:0}} className="text-3xl font-bold mb-4">
 What Should I Hold?
 </motion.h1>
+
+{/* Mode Toggle */}
+<div className="flex gap-2 mb-6">
+<button 
+  onClick={() => setMode("training")}
+  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+    mode === "training" 
+      ? "bg-blue-600 text-white shadow-md" 
+      : "bg-white text-gray-600 border hover:bg-gray-50"
+  }`}
+>
+  🎯 Training Mode
+</button>
+<button 
+  onClick={() => setMode("analysis")}
+  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+    mode === "analysis" 
+      ? "bg-green-600 text-white shadow-md" 
+      : "bg-white text-gray-600 border hover:bg-gray-50"
+  }`}
+>
+  🔍 Hand Analysis
+</button>
+</div>
+
+{mode === "training" ? (
+<div>
+{/* Training Mode Content */}
 
 
 <div className="mb-4">
@@ -446,6 +589,129 @@ HOLD
 </div>
 ))}
 </motion.div>
+
+</div>
+) : (
+<div>
+{/* Analysis Mode Content */}
+<div className="mb-6">
+<label className="mr-2 font-semibold">Game:</label>
+<select value={game} onChange={e=>setGame(e.target.value)} className="border rounded px-2 py-1">
+{Object.keys(PAYTABLES).map(g => <option key={g} value={g}>{g}</option>)}
+</select>
+</div>
+
+<div className="bg-white rounded-2xl shadow p-6 mb-6">
+<h3 className="text-xl font-bold mb-4">🔍 Hand Analysis - Input Your Cards</h3>
+<div className="grid grid-cols-5 gap-4 mb-6">
+{cards.map((card, i) => (
+<div key={i} className="flex flex-col items-center gap-2">
+<div className="text-sm text-gray-500 font-medium">Card {i+1}</div>
+<CardInput 
+  value={card} 
+  onChange={(newCard) => {
+    const newCards = [...cards];
+    newCards[i] = newCard;
+    setCards(newCards);
+  }} 
+/>
+</div>
+))}
+</div>
+
+<div className="flex gap-3 mb-4">
+<button 
+  onClick={() => {
+    const deck = makeDeck();
+    const shuffled = [...deck];
+    for(let i = shuffled.length-1; i > 0; i--){ 
+      const j = Math.floor(Math.random() * (i+1)); 
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]; 
+    }
+    setCards(shuffled.slice(0,5));
+  }} 
+  className="px-4 py-2 rounded-lg bg-gray-600 text-white shadow hover:bg-gray-700"
+>
+  🎲 Random Hand
+</button>
+<button 
+  onClick={() => setCards(["A♠","K♠","Q♠","J♠","10♠"])} 
+  className="px-4 py-2 rounded-lg bg-purple-600 text-white shadow hover:bg-purple-700"
+>
+  👑 Royal Flush
+</button>
+<button 
+  onClick={() => setCards(["A♠","A♥","A♦","2♠","3♠"])} 
+  className="px-4 py-2 rounded-lg bg-orange-600 text-white shadow hover:bg-orange-700"
+>
+  🎯 Trip Aces
+</button>
+</div>
+</div>
+
+{/* Analysis Results */}
+<motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} className="bg-white rounded-2xl shadow p-6">
+<h3 className="text-xl font-bold mb-4">📊 Strategy Analysis</h3>
+
+{/* Current Hand Display */}
+<div className="mb-6">
+<h4 className="font-semibold mb-3">Your Hand:</h4>
+<div className="flex gap-3 justify-center mb-4">
+{cards.map((c,i) => {
+const cardRank = rank(c);
+const cardSuit = suit(c);
+const colorClass = getCardColor(cardSuit);
+const isHeld = best.hold.includes(i);
+return (
+<div key={i} className={`relative w-14 h-20 rounded-lg border-2 bg-white shadow-md ${isHeld ? "border-green-500 bg-green-50" : "border-gray-300"}`}>
+<div className={`flex flex-col items-center justify-center h-full ${colorClass}`}>
+<div className="text-base font-bold">{cardRank}</div>
+<div className="text-lg">{cardSuit}</div>
+</div>
+{isHeld && (
+<div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 bg-green-600 text-white text-xs px-1 py-0.5 rounded font-bold">
+HOLD
+</div>
+)}
+</div>
+);
+})}
+</div>
+</div>
+
+{/* Strategy Recommendation */}
+<div className="bg-blue-50 rounded-lg p-4 mb-4">
+<h4 className="font-semibold text-blue-800 mb-2">💡 Optimal Strategy:</h4>
+<p className="text-blue-700">
+{getStrategyExplanation(cards, best, game)}
+</p>
+</div>
+
+{/* Hand Information */}
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+<div className="bg-gray-50 rounded-lg p-4">
+<h4 className="font-semibold mb-2">📋 Hand Details</h4>
+<div className="space-y-1 text-sm">
+<div><strong>Current Hand:</strong> {evaluate5(cards, paytable).name}</div>
+<div><strong>Current Payout:</strong> {evaluate5(cards, paytable).payout}x</div>
+<div><strong>Cards to Hold:</strong> {best.hold.length} cards</div>
+<div><strong>Expected Value:</strong> {best.ev.toFixed(3)}</div>
+</div>
+</div>
+
+<div className="bg-gray-50 rounded-lg p-4">
+<h4 className="font-semibold mb-2">🎮 Game Info</h4>
+<div className="space-y-1 text-sm">
+<div><strong>Variant:</strong> {game}</div>
+<div><strong>Royal Flush:</strong> {paytable.ROYAL}x</div>
+<div><strong>Full House:</strong> {paytable.FULL_HOUSE}x</div>
+<div><strong>Flush:</strong> {paytable.FLUSH}x</div>
+</div>
+</div>
+</div>
+</motion.div>
+</div>
+)}
 </div>
 </div>
 );

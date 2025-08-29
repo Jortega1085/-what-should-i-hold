@@ -2,6 +2,7 @@
   "name": "what-should-i-hold",
   "version": "0.1.0",
   "private": true,
+  "homepage": "https://jortega1085.github.io/-what-should-i-hold",
   "dependencies": {
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.8.0",

@@ -579,6 +579,7 @@ if (bestHold.hold.length === 0) {
 return `Hold ${bestHold.hold.length} cards with RTP: ${(bestHold.ev * 100).toFixed(1)}%`;
 }
 
+// Professional Career Statistics Modal Component
 function CareerStatsModal({
   isOpen,
   onClose,
@@ -638,103 +639,255 @@ function CareerStatsModal({
     .sort(([a], [b]) => b.localeCompare(a))
     .slice(0, 7);
 
+  // Calculate advanced statistics
+  const daysPlaying = Object.keys(stats.sessionsByDate).length;
+  const avgHandsPerSession = daysPlaying > 0 ? Math.round(stats.totalHands / daysPlaying) : 0;
+  const mostPlayedGame = Object.entries(stats.handsPerGame)
+    .sort(([,a], [,b]) => b.played - a.played)[0];
+  const rtpEfficiency = stats.totalRTPLost > 0 ? 
+    Math.max(0, 100 - (stats.totalRTPLost / stats.totalHands * 100)) : 100;
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4">
-      <div className={`${currentTheme.glassPanel} rounded-3xl p-6 max-w-4xl w-full max-h-full overflow-y-auto ${currentTheme.shadow}`}>
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h3 className={`text-3xl font-bold ${currentTheme.text} flex items-center gap-3`}>
-              <span className="text-4xl">📊</span>
-              Career Statistics
+    <motion.div 
+      initial={{opacity: 0, scale: 0.9}}
+      animate={{opacity: 1, scale: 1}}
+      exit={{opacity: 0, scale: 0.9}}
+      transition={{duration: 0.3}}
+      className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4"
+    >
+      <div className={`${currentTheme.glassPanel} rounded-3xl p-8 max-w-7xl w-full max-h-[95vh] overflow-y-auto ${currentTheme.shadow} backdrop-blur-3xl`}>
+        {/* Enhanced Header */}
+        <div className="flex items-center justify-between mb-8">
+          <motion.div
+            initial={{x: -20, opacity: 0}}
+            animate={{x: 0, opacity: 1}}
+            transition={{delay: 0.1}}
+          >
+            <h3 className={`text-4xl font-black ${currentTheme.text} flex items-center gap-4 mb-2`}>
+              <span className="text-5xl">📊</span>
+              Professional Career Analytics
             </h3>
-            <div className="mt-2">
-              <label className={`text-sm font-medium ${currentTheme.textMuted} mr-3`}>Game Variant:</label>
+            <p className={`text-lg ${currentTheme.textMuted} font-medium`}>
+              Comprehensive performance tracking across all poker variants
+            </p>
+            <div className="mt-3 flex items-center gap-4">
+              <label className={`text-sm font-semibold ${currentTheme.text} mr-2`}>Focus Game:</label>
               <select 
                 value={currentGame} 
                 onChange={e => onGameChange(e.target.value)} 
-                className={`${currentTheme.glassPanel} ${currentTheme.text} border rounded-lg px-3 py-1 text-sm font-medium`}
+                className={`${currentTheme.glassPanel} ${currentTheme.text} border rounded-xl px-4 py-2 text-sm font-semibold shadow-md`}
               >
                 {Object.keys(PAYTABLES).map(g => <option key={g} value={g}>{g}</option>)}
               </select>
             </div>
-          </div>
-          <button
+          </motion.div>
+          <motion.button
+            initial={{x: 20, opacity: 0}}
+            animate={{x: 0, opacity: 1}}
+            transition={{delay: 0.1}}
             onClick={onClose}
-            className={`px-4 py-2 rounded-xl ${currentTheme.text} hover:bg-black/10 transition-all`}
+            className={`px-6 py-3 rounded-2xl ${currentTheme.text} hover:bg-black/10 transition-all duration-300 font-bold text-lg`}
           >
-            <span className="text-2xl">✕</span>
-          </button>
+            <span className="text-3xl">✕</span>
+          </motion.button>
         </div>
 
-        {/* Current Game Stats */}
-        <div className="mb-6">
-          <h4 className={`text-xl font-bold mb-4 ${currentTheme.text}`}>🎮 {currentGame} Performance</h4>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className={`${currentTheme.glassPanel} rounded-2xl p-4 text-center`}>
-              <div className={`text-3xl font-bold ${currentTheme.text}`}>{gameStats.played.toLocaleString()}</div>
-              <div className={`text-sm ${currentTheme.textMuted} font-medium`}>Hands Played</div>
-            </div>
-            <div className={`${currentTheme.glassPanel} rounded-2xl p-4 text-center`}>
-              <div className={`text-3xl font-bold ${gameAccuracy >= 80 ? 'text-green-600' : gameAccuracy >= 60 ? 'text-yellow-600' : 'text-red-600'}`}>
-                {gameAccuracy.toFixed(1)}%
-              </div>
-              <div className={`text-sm ${currentTheme.textMuted} font-medium`}>Accuracy</div>
-            </div>
-            <div className={`${currentTheme.glassPanel} rounded-2xl p-4 text-center`}>
-              <div className={`text-3xl font-bold ${gameMistakes === 0 ? 'text-green-600' : 'text-red-600'}`}>{gameMistakes}</div>
-              <div className={`text-sm ${currentTheme.textMuted} font-medium`}>Mistakes</div>
-            </div>
-            <div className={`${currentTheme.glassPanel} rounded-2xl p-4 text-center`}>
-              <div className={`text-3xl font-bold ${currentTheme.text}`}>{stats.bestStreak}</div>
-              <div className={`text-sm ${currentTheme.textMuted} font-medium`}>Best Streak</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Overall Career Stats */}
-        <div className="mb-6">
-          <h4 className={`text-xl font-bold mb-4 ${currentTheme.text}`}>🏆 Overall Career</h4>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className={`${currentTheme.glassPanel} rounded-2xl p-4 text-center`}>
-              <div className={`text-2xl font-bold ${currentTheme.text}`}>{stats.totalHands.toLocaleString()}</div>
-              <div className={`text-sm ${currentTheme.textMuted} font-medium`}>Total Hands</div>
-            </div>
-            <div className={`${currentTheme.glassPanel} rounded-2xl p-4 text-center`}>
-              <div className={`text-2xl font-bold ${overallAccuracy >= 80 ? 'text-green-600' : overallAccuracy >= 60 ? 'text-yellow-600' : 'text-red-600'}`}>
+        {/* Executive Summary Dashboard */}
+        <motion.div
+          initial={{y: 20, opacity: 0}}
+          animate={{y: 0, opacity: 1}}
+          transition={{delay: 0.2}}
+          className="mb-8"
+        >
+          <h4 className={`text-2xl font-black mb-6 ${currentTheme.text} flex items-center gap-3`}>
+            <span className="text-3xl">🏆</span>
+            Executive Performance Dashboard
+          </h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className={`${currentTheme.glassPanel} rounded-3xl p-6 text-center transform hover:scale-105 transition-all duration-300 shadow-xl`}>
+              <div className="text-4xl mb-2">🎯</div>
+              <div className={`text-4xl font-black ${overallAccuracy >= 90 ? 'text-emerald-600' : overallAccuracy >= 80 ? 'text-green-600' : overallAccuracy >= 70 ? 'text-yellow-600' : 'text-red-600'}`}>
                 {overallAccuracy.toFixed(1)}%
               </div>
-              <div className={`text-sm ${currentTheme.textMuted} font-medium`}>Overall Accuracy</div>
+              <div className={`text-sm ${currentTheme.textMuted} font-bold`}>Overall Mastery</div>
+              <div className={`text-xs ${currentTheme.textMuted} mt-1`}>{stats.correctDecisions.toLocaleString()}/{stats.totalHands.toLocaleString()} correct</div>
             </div>
-            <div className={`${currentTheme.glassPanel} rounded-2xl p-4 text-center`}>
-              <div className={`text-2xl font-bold text-red-600`}>{stats.totalRTPLost.toFixed(1)}%</div>
-              <div className={`text-sm ${currentTheme.textMuted} font-medium`}>Total RTP Lost</div>
+            
+            <div className={`${currentTheme.glassPanel} rounded-3xl p-6 text-center transform hover:scale-105 transition-all duration-300 shadow-xl`}>
+              <div className="text-4xl mb-2">💎</div>
+              <div className={`text-4xl font-black ${rtpEfficiency >= 95 ? 'text-emerald-600' : rtpEfficiency >= 90 ? 'text-green-600' : rtpEfficiency >= 80 ? 'text-yellow-600' : 'text-red-600'}`}>
+                {rtpEfficiency.toFixed(1)}%
+              </div>
+              <div className={`text-sm ${currentTheme.textMuted} font-bold`}>RTP Efficiency</div>
+              <div className={`text-xs ${currentTheme.textMuted} mt-1`}>{stats.totalRTPLost.toFixed(2)}% total lost</div>
             </div>
-          </div>
-        </div>
 
-        {/* Performance by Game */}
-        <div className="mb-6">
-          <h4 className={`text-xl font-bold mb-4 ${currentTheme.text}`}>🎮 Performance by Game</h4>
-          <div className="space-y-2">
-            {Object.entries(stats.handsPerGame).map(([gameName, gameStats]) => {
-              const accuracy = gameStats.played > 0 ? (gameStats.correct / gameStats.played * 100) : 0;
-              return (
-                <div key={gameName} className={`${currentTheme.glassPanel} rounded-xl p-4 flex justify-between items-center`}>
-                  <div>
-                    <div className={`font-medium ${currentTheme.text}`}>{gameName}</div>
-                    <div className={`text-sm ${currentTheme.textMuted}`}>{gameStats.played} hands played</div>
-                  </div>
-                  <div className="text-right">
-                    <div className={`text-lg font-bold ${accuracy >= 80 ? 'text-green-600' : accuracy >= 60 ? 'text-yellow-600' : 'text-red-600'}`}>
-                      {accuracy.toFixed(1)}%
-                    </div>
-                    <div className={`text-sm ${currentTheme.textMuted}`}>{gameStats.correct}/{gameStats.played}</div>
-                  </div>
-                </div>
-              );
-            })}
+            <div className={`${currentTheme.glassPanel} rounded-3xl p-6 text-center transform hover:scale-105 transition-all duration-300 shadow-xl`}>
+              <div className="text-4xl mb-2">🔥</div>
+              <div className={`text-4xl font-black ${stats.bestStreak >= 20 ? 'text-emerald-600' : stats.bestStreak >= 10 ? 'text-green-600' : stats.bestStreak >= 5 ? 'text-yellow-600' : 'text-red-600'}`}>
+                {stats.bestStreak}
+              </div>
+              <div className={`text-sm ${currentTheme.textMuted} font-bold`}>Best Streak</div>
+              <div className={`text-xs ${currentTheme.textMuted} mt-1`}>Current: {stats.currentStreak}</div>
+            </div>
+
+            <div className={`${currentTheme.glassPanel} rounded-3xl p-6 text-center transform hover:scale-105 transition-all duration-300 shadow-xl`}>
+              <div className="text-4xl mb-2">📈</div>
+              <div className={`text-4xl font-black ${currentTheme.text}`}>{avgHandsPerSession}</div>
+              <div className={`text-sm ${currentTheme.textMuted} font-bold`}>Avg Hands/Session</div>
+              <div className={`text-xs ${currentTheme.textMuted} mt-1`}>{daysPlaying} sessions total</div>
+            </div>
           </div>
-        </div>
+        </motion.div>
+
+        {/* Focus Game Deep Dive */}
+        <motion.div
+          initial={{y: 20, opacity: 0}}
+          animate={{y: 0, opacity: 1}}
+          transition={{delay: 0.3}}
+          className="mb-8"
+        >
+          <h4 className={`text-2xl font-black mb-6 ${currentTheme.text} flex items-center gap-3`}>
+            <span className="text-3xl">🎮</span>
+            {currentGame} - Deep Performance Analysis
+          </h4>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className={`${currentTheme.glassPanel} rounded-3xl p-6 col-span-2`}>
+              <h5 className={`text-lg font-bold mb-4 ${currentTheme.text} flex items-center gap-2`}>
+                <span className="text-2xl">📊</span>
+                Performance Metrics
+              </h5>
+              <div className="grid grid-cols-2 gap-6">
+                <div className="text-center">
+                  <div className={`text-3xl font-black ${gameAccuracy >= 85 ? 'text-emerald-600' : gameAccuracy >= 75 ? 'text-green-600' : gameAccuracy >= 65 ? 'text-yellow-600' : 'text-red-600'}`}>
+                    {gameAccuracy.toFixed(1)}%
+                  </div>
+                  <div className={`text-sm ${currentTheme.textMuted} font-semibold`}>Game Accuracy</div>
+                  <div className={`text-xs ${currentTheme.textMuted} mt-1`}>{gameStats.correct}/{gameStats.played} hands</div>
+                </div>
+                <div className="text-center">
+                  <div className={`text-3xl font-black ${gameMistakes === 0 ? 'text-emerald-600' : gameMistakes <= 5 ? 'text-green-600' : gameMistakes <= 15 ? 'text-yellow-600' : 'text-red-600'}`}>
+                    {gameMistakes}
+                  </div>
+                  <div className={`text-sm ${currentTheme.textMuted} font-semibold`}>Total Mistakes</div>
+                  <div className={`text-xs ${currentTheme.textMuted} mt-1`}>In this variant</div>
+                </div>
+              </div>
+            </div>
+            
+            <div className={`${currentTheme.glassPanel} rounded-3xl p-6`}>
+              <h5 className={`text-lg font-bold mb-4 ${currentTheme.text} flex items-center gap-2`}>
+                <span className="text-2xl">🏅</span>
+                Skill Level
+              </h5>
+              <div className="text-center">
+                <div className={`text-6xl mb-2`}>
+                  {gameAccuracy >= 95 ? '🥇' : gameAccuracy >= 85 ? '🥈' : gameAccuracy >= 75 ? '🥉' : gameAccuracy >= 65 ? '📚' : '🎯'}
+                </div>
+                <div className={`text-lg font-bold ${currentTheme.text}`}>
+                  {gameAccuracy >= 95 ? 'Expert' : gameAccuracy >= 85 ? 'Advanced' : gameAccuracy >= 75 ? 'Intermediate' : gameAccuracy >= 65 ? 'Learning' : 'Beginner'}
+                </div>
+                <div className={`text-sm ${currentTheme.textMuted}`}>
+                  {gameStats.played.toLocaleString()} hands played
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Comprehensive Game Version Analysis */}
+        <motion.div
+          initial={{y: 20, opacity: 0}}
+          animate={{y: 0, opacity: 1}}
+          transition={{delay: 0.4}}
+          className="mb-8"
+        >
+          <h4 className={`text-2xl font-black mb-6 ${currentTheme.text} flex items-center gap-3`}>
+            <span className="text-3xl">🃏</span>
+            Multi-Game Performance Mastery
+          </h4>
+          
+          {Object.entries(stats.handsPerGame).length === 0 ? (
+            <div className={`${currentTheme.glassPanel} rounded-3xl p-12 text-center`}>
+              <div className="text-6xl mb-4">🎯</div>
+              <div className={`text-xl font-bold ${currentTheme.text} mb-2`}>Ready to Track Your Journey</div>
+              <div className={`text-lg ${currentTheme.textMuted}`}>Start playing to see detailed performance analytics across all poker variants!</div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4">
+              {Object.entries(stats.handsPerGame)
+                .sort(([,a], [,b]) => b.played - a.played) // Sort by most played
+                .map(([gameName, gameStats]) => {
+                  const accuracy = gameStats.played > 0 ? (gameStats.correct / gameStats.played * 100) : 0;
+                  const mistakes = stats.mistakesByGame[gameName] || 0;
+                  const skillLevel = accuracy >= 95 ? 'Expert' : accuracy >= 85 ? 'Advanced' : accuracy >= 75 ? 'Intermediate' : accuracy >= 65 ? 'Learning' : 'Beginner';
+                  const skillEmoji = accuracy >= 95 ? '🥇' : accuracy >= 85 ? '🥈' : accuracy >= 75 ? '🥉' : accuracy >= 65 ? '📚' : '🎯';
+                  const isFavorite = mostPlayedGame && mostPlayedGame[0] === gameName;
+
+                  return (
+                    <motion.div 
+                      key={gameName} 
+                      whileHover={{scale: 1.02}}
+                      className={`${currentTheme.glassPanel} rounded-3xl p-6 transform transition-all duration-300 hover:shadow-2xl ${isFavorite ? 'ring-2 ring-yellow-500/50' : ''}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="text-4xl">{skillEmoji}</div>
+                          <div>
+                            <div className={`text-lg font-black ${currentTheme.text} flex items-center gap-2`}>
+                              {gameName}
+                              {isFavorite && <span className="text-yellow-500 text-sm">⭐ Most Played</span>}
+                            </div>
+                            <div className={`text-sm ${currentTheme.textMuted} font-semibold`}>{skillLevel} Level</div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-8">
+                          <div className="text-center">
+                            <div className={`text-2xl font-black ${currentTheme.text}`}>
+                              {gameStats.played.toLocaleString()}
+                            </div>
+                            <div className={`text-xs ${currentTheme.textMuted} font-semibold`}>Hands</div>
+                          </div>
+                          
+                          <div className="text-center">
+                            <div className={`text-2xl font-black ${accuracy >= 85 ? 'text-emerald-600' : accuracy >= 75 ? 'text-green-600' : accuracy >= 65 ? 'text-yellow-600' : 'text-red-600'}`}>
+                              {accuracy.toFixed(1)}%
+                            </div>
+                            <div className={`text-xs ${currentTheme.textMuted} font-semibold`}>Accuracy</div>
+                          </div>
+                          
+                          <div className="text-center">
+                            <div className={`text-2xl font-black ${mistakes === 0 ? 'text-emerald-600' : mistakes <= 5 ? 'text-green-600' : mistakes <= 15 ? 'text-yellow-600' : 'text-red-600'}`}>
+                              {mistakes}
+                            </div>
+                            <div className={`text-xs ${currentTheme.textMuted} font-semibold`}>Mistakes</div>
+                          </div>
+
+                          <div className="text-center">
+                            <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-black text-white ${accuracy >= 85 ? 'bg-emerald-600' : accuracy >= 75 ? 'bg-green-600' : accuracy >= 65 ? 'bg-yellow-600' : 'bg-red-600'}`}>
+                              {Math.round(accuracy)}
+                            </div>
+                            <div className={`text-xs ${currentTheme.textMuted} font-semibold mt-1`}>Grade</div>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Progress Bar */}
+                      <div className="mt-4">
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div 
+                            className={`h-2 rounded-full transition-all duration-1000 ${accuracy >= 85 ? 'bg-emerald-600' : accuracy >= 75 ? 'bg-green-600' : accuracy >= 65 ? 'bg-yellow-600' : 'bg-red-600'}`}
+                            style={{width: `${Math.min(accuracy, 100)}%`}}
+                          />
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+            </div>
+          )}
+        </motion.div>
 
         {/* Mistake Analysis */}
         <div className="mb-6">
@@ -795,7 +948,7 @@ function CareerStatsModal({
           </button>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 

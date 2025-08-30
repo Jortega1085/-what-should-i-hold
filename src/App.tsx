@@ -19,6 +19,145 @@ for (const s of SUITS) for (const r of RANKS) deck.push(`${r}${s}`);
 return deck;
 }
 
+function getRandomHand(): string[] {
+const deck = makeDeck();
+for(let i=deck.length-1;i>0;i--){ 
+  const j=Math.floor(Math.random()*(i+1)); 
+  [deck[i], deck[j]]=[deck[j],deck[i]]; 
+}
+return deck.slice(0,5);
+}
+
+// Career Stats Interface
+interface CareerStats {
+  totalHands: number;
+  correctDecisions: number;
+  totalRTPGained: number;
+  totalRTPLost: number;
+  mistakesByGame: Record<string, number>;
+  mistakesBySeverity: Record<string, number>;
+  sessionsByDate: Record<string, {hands: number, correct: number, rtpGained: number, rtpLost: number}>;
+  bestStreak: number;
+  currentStreak: number;
+  startDate: string;
+  lastPlayed: string;
+  handsPerGame: Record<string, {played: number, correct: number}>;
+}
+
+// Career Stats Management
+function getDefaultCareerStats(): CareerStats {
+  return {
+    totalHands: 0,
+    correctDecisions: 0,
+    totalRTPGained: 0,
+    totalRTPLost: 0,
+    mistakesByGame: {},
+    mistakesBySeverity: {
+      "Excellent": 0,
+      "Minor mistake": 0,
+      "Moderate mistake": 0,
+      "Major mistake": 0,
+      "Severe mistake": 0
+    },
+    sessionsByDate: {},
+    bestStreak: 0,
+    currentStreak: 0,
+    startDate: new Date().toISOString().split('T')[0],
+    lastPlayed: new Date().toISOString().split('T')[0],
+    handsPerGame: {}
+  };
+}
+
+function loadCareerStats(): CareerStats {
+  try {
+    const saved = localStorage.getItem('videoPokerCareerStats');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Ensure all required fields exist (for backwards compatibility)
+      return { ...getDefaultCareerStats(), ...parsed };
+    }
+  } catch (error) {
+    console.warn('Failed to load career stats:', error);
+  }
+  return getDefaultCareerStats();
+}
+
+function saveCareerStats(stats: CareerStats): void {
+  try {
+    localStorage.setItem('videoPokerCareerStats', JSON.stringify(stats));
+  } catch (error) {
+    console.warn('Failed to save career stats:', error);
+  }
+}
+
+function loadGameVariant(): string {
+  try {
+    return localStorage.getItem('videoPokerGameVariant') || 'Jacks or Better 9/6';
+  } catch (error) {
+    return 'Jacks or Better 9/6';
+  }
+}
+
+function saveGameVariant(game: string): void {
+  try {
+    localStorage.setItem('videoPokerGameVariant', game);
+  } catch (error) {
+    console.warn('Failed to save game variant:', error);
+  }
+}
+
+function updateCareerStats(
+  currentStats: CareerStats, 
+  correct: boolean, 
+  game: string, 
+  mistakeCost: number, 
+  severity: string
+): CareerStats {
+  const today = new Date().toISOString().split('T')[0];
+  const newStats = { ...currentStats };
+  
+  // Update basic counters
+  newStats.totalHands += 1;
+  if (correct) {
+    newStats.correctDecisions += 1;
+    newStats.currentStreak += 1;
+    newStats.bestStreak = Math.max(newStats.bestStreak, newStats.currentStreak);
+  } else {
+    newStats.currentStreak = 0;
+    newStats.totalRTPLost += mistakeCost;
+  }
+  
+  // Track by game variant
+  if (!newStats.handsPerGame[game]) {
+    newStats.handsPerGame[game] = { played: 0, correct: 0 };
+  }
+  newStats.handsPerGame[game].played += 1;
+  if (correct) {
+    newStats.handsPerGame[game].correct += 1;
+  }
+  
+  // Track mistakes by game and severity
+  if (!correct) {
+    newStats.mistakesByGame[game] = (newStats.mistakesByGame[game] || 0) + 1;
+    newStats.mistakesBySeverity[severity] = (newStats.mistakesBySeverity[severity] || 0) + 1;
+  }
+  
+  // Track daily sessions
+  if (!newStats.sessionsByDate[today]) {
+    newStats.sessionsByDate[today] = { hands: 0, correct: 0, rtpGained: 0, rtpLost: 0 };
+  }
+  newStats.sessionsByDate[today].hands += 1;
+  if (correct) {
+    newStats.sessionsByDate[today].correct += 1;
+  } else {
+    newStats.sessionsByDate[today].rtpLost += mistakeCost;
+  }
+  
+  newStats.lastPlayed = today;
+  
+  return newStats;
+}
+
 function rank(card: string) { return card.length === 3 ? card.slice(0, 2) : card[0]; }
 function suit(card: string) { return card.length === 3 ? card.slice(2) : card.slice(1); }
 
@@ -382,7 +521,7 @@ if (bestHold.hold.length === 4) {
   
   // 4-card flush
   if (new Set(heldSuits).size === 1) {
-    return `🌊 4-Card Flush Draw (${heldSuits[0]})! You have a 19% chance (9/47 cards) to complete the flush. Expected value: ${bestHold.ev.toFixed(2)}`;
+    return `🌊 4-Card Flush Draw (${heldSuits[0]})! You have a 19% chance (9/47 cards) to complete the flush. RTP: ${(bestHold.ev * 100).toFixed(1)}%`;
   }
   
   // 4-card straight
@@ -395,7 +534,7 @@ if (bestHold.hold.length === 4) {
     }
   }
   if (isConsecutive) {
-    return `📈 4-Card Straight Draw! You need 8 cards to complete the straight. Expected value: ${bestHold.ev.toFixed(2)}`;
+    return `📈 4-Card Straight Draw! You need 8 cards to complete the straight. RTP: ${(bestHold.ev * 100).toFixed(1)}%`;
   }
 }
 
@@ -406,7 +545,7 @@ if (bestHold.hold.length === 3) {
   // 3-card royal
   const royals = ['10', 'J', 'Q', 'K', 'A'];
   if (new Set(heldSuits).size === 1 && heldRanks.every(r => royals.includes(r))) {
-    return `👑 3-Card Royal Flush Draw! You have a chance at the royal flush (2 cards) or other strong hands. Expected value: ${bestHold.ev.toFixed(2)}`;
+    return `👑 3-Card Royal Flush Draw! You have a chance at the royal flush (2 cards) or other strong hands. RTP: ${(bestHold.ev * 100).toFixed(1)}%`;
   }
 }
 
@@ -417,27 +556,247 @@ if (bestHold.hold.length <= 2 && bestHold.hold.length > 0) {
   
   if (highCards.length > 0) {
     if (game === "Double Double Bonus" && heldRanks.includes('A')) {
-      return `🎯 Hold the Ace(s)! In Double Double Bonus, Aces are especially valuable for bonus payouts. Expected value: ${bestHold.ev.toFixed(2)}`;
+      return `🎯 Hold the Ace(s)! In Double Double Bonus, Aces are especially valuable for bonus payouts. RTP: ${(bestHold.ev * 100).toFixed(1)}%`;
     }
-    return `👑 Hold High Card(s): ${heldRanks.join(', ')}. These can form paying pairs (Jacks or Better). Expected value: ${bestHold.ev.toFixed(2)}`;
+    return `👑 Hold High Card(s): ${heldRanks.join(', ')}. These can form paying pairs (Jacks or Better). RTP: ${(bestHold.ev * 100).toFixed(1)}%`;
   }
   
   // Low pair
   const pairRank = heldRanks[0];
   if (heldRanks.length === 2 && heldRanks[0] === heldRanks[1]) {
     if (game === "Double Double Bonus") {
-      return `🎲 Low Pair (${pairRank}s) in Double Double Bonus. Low pairs can improve to trips or full house, and sometimes beat high card draws. Expected value: ${bestHold.ev.toFixed(2)}`;
+      return `🎲 Low Pair (${pairRank}s) in Double Double Bonus. Low pairs can improve to trips or full house, and sometimes beat high card draws. RTP: ${(bestHold.ev * 100).toFixed(1)}%`;
     }
-    return `🎲 Low Pair (${pairRank}s). While this doesn't pay now, it can improve to trips or better. Expected value: ${bestHold.ev.toFixed(2)}`;
+    return `🎲 Low Pair (${pairRank}s). While this doesn't pay now, it can improve to trips or better. RTP: ${(bestHold.ev * 100).toFixed(1)}%`;
   }
 }
 
 // Draw 5
 if (bestHold.hold.length === 0) {
-  return `🎲 Draw 5 New Cards! No profitable holds found. This gives you a fresh chance at any hand. Expected value: ${bestHold.ev.toFixed(2)}`;
+  return `🎲 Draw 5 New Cards! No profitable holds found. This gives you a fresh chance at any hand. RTP: ${(bestHold.ev * 100).toFixed(1)}%`;
 }
 
-return `Hold ${bestHold.hold.length} cards with expected value: ${bestHold.ev.toFixed(2)}`;
+return `Hold ${bestHold.hold.length} cards with RTP: ${(bestHold.ev * 100).toFixed(1)}%`;
+}
+
+function CareerStatsModal({
+  isOpen,
+  onClose,
+  stats,
+  onReset,
+  theme,
+  currentGame,
+  onGameChange
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  stats: CareerStats;
+  onReset: () => void;
+  theme: any;
+  currentGame: string;
+  onGameChange: (game: string) => void;
+}) {
+  if (!isOpen) return null;
+
+  const themes = {
+    light: {
+      glassPanel: "bg-gradient-to-br from-white/90 via-white/70 to-white/90 backdrop-blur-2xl border border-white/40",
+      text: "text-slate-900",
+      textMuted: "text-slate-600",
+      shadow: "shadow-2xl shadow-slate-200/40",
+      dangerBtn: "bg-gradient-to-r from-red-600 via-rose-700 to-red-700 hover:from-red-700 hover:via-rose-800 hover:to-red-800 shadow-lg shadow-red-500/25",
+      secondaryBtn: "bg-gradient-to-r from-slate-600 via-gray-700 to-slate-800 hover:from-slate-700 hover:via-gray-800 hover:to-slate-900 shadow-lg shadow-slate-500/25",
+    },
+    dark: {
+      glassPanel: "bg-gradient-to-br from-slate-800/90 via-slate-900/70 to-slate-800/90 backdrop-blur-2xl border border-slate-700/40",
+      text: "text-slate-100",
+      textMuted: "text-slate-400",
+      shadow: "shadow-2xl shadow-black/40",
+      dangerBtn: "bg-gradient-to-r from-red-600 via-pink-700 to-rose-700 hover:from-red-700 hover:via-pink-800 hover:to-rose-800 shadow-lg shadow-red-500/25",
+      secondaryBtn: "bg-gradient-to-r from-slate-700 via-gray-800 to-slate-900 hover:from-slate-600 hover:via-gray-700 hover:to-slate-800 shadow-lg shadow-slate-500/25",
+    },
+    casino: {
+      glassPanel: "bg-gradient-to-br from-emerald-800/50 via-green-900/40 to-emerald-800/50 backdrop-blur-2xl border border-emerald-600/30",
+      text: "text-emerald-50",
+      textMuted: "text-emerald-200",
+      shadow: "shadow-2xl shadow-emerald-900/50",
+      dangerBtn: "bg-gradient-to-r from-red-600 via-rose-700 to-red-700 hover:from-red-700 hover:via-rose-800 hover:to-red-800 shadow-lg shadow-red-500/25",
+      secondaryBtn: "bg-gradient-to-r from-emerald-700 via-green-800 to-teal-800 hover:from-emerald-600 hover:via-green-700 hover:to-teal-700 shadow-lg shadow-emerald-500/25",
+    }
+  };
+  
+  const currentTheme = themes[theme as keyof typeof themes];
+  
+  // Game-specific stats
+  const gameStats = stats.handsPerGame[currentGame] || { played: 0, correct: 0 };
+  const gameAccuracy = gameStats.played > 0 ? (gameStats.correct / gameStats.played * 100) : 0;
+  const gameMistakes = stats.mistakesByGame[currentGame] || 0;
+  
+  // Overall stats
+  const overallAccuracy = stats.totalHands > 0 ? (stats.correctDecisions / stats.totalHands * 100) : 0;
+  const recentSessions = Object.entries(stats.sessionsByDate)
+    .sort(([a], [b]) => b.localeCompare(a))
+    .slice(0, 7);
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4">
+      <div className={`${currentTheme.glassPanel} rounded-3xl p-6 max-w-4xl w-full max-h-full overflow-y-auto ${currentTheme.shadow}`}>
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className={`text-3xl font-bold ${currentTheme.text} flex items-center gap-3`}>
+              <span className="text-4xl">📊</span>
+              Career Statistics
+            </h3>
+            <div className="mt-2">
+              <label className={`text-sm font-medium ${currentTheme.textMuted} mr-3`}>Game Variant:</label>
+              <select 
+                value={currentGame} 
+                onChange={e => onGameChange(e.target.value)} 
+                className={`${currentTheme.glassPanel} ${currentTheme.text} border rounded-lg px-3 py-1 text-sm font-medium`}
+              >
+                {Object.keys(PAYTABLES).map(g => <option key={g} value={g}>{g}</option>)}
+              </select>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className={`px-4 py-2 rounded-xl ${currentTheme.text} hover:bg-black/10 transition-all`}
+          >
+            <span className="text-2xl">✕</span>
+          </button>
+        </div>
+
+        {/* Current Game Stats */}
+        <div className="mb-6">
+          <h4 className={`text-xl font-bold mb-4 ${currentTheme.text}`}>🎮 {currentGame} Performance</h4>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className={`${currentTheme.glassPanel} rounded-2xl p-4 text-center`}>
+              <div className={`text-3xl font-bold ${currentTheme.text}`}>{gameStats.played.toLocaleString()}</div>
+              <div className={`text-sm ${currentTheme.textMuted} font-medium`}>Hands Played</div>
+            </div>
+            <div className={`${currentTheme.glassPanel} rounded-2xl p-4 text-center`}>
+              <div className={`text-3xl font-bold ${gameAccuracy >= 80 ? 'text-green-600' : gameAccuracy >= 60 ? 'text-yellow-600' : 'text-red-600'}`}>
+                {gameAccuracy.toFixed(1)}%
+              </div>
+              <div className={`text-sm ${currentTheme.textMuted} font-medium`}>Accuracy</div>
+            </div>
+            <div className={`${currentTheme.glassPanel} rounded-2xl p-4 text-center`}>
+              <div className={`text-3xl font-bold ${gameMistakes === 0 ? 'text-green-600' : 'text-red-600'}`}>{gameMistakes}</div>
+              <div className={`text-sm ${currentTheme.textMuted} font-medium`}>Mistakes</div>
+            </div>
+            <div className={`${currentTheme.glassPanel} rounded-2xl p-4 text-center`}>
+              <div className={`text-3xl font-bold ${currentTheme.text}`}>{stats.bestStreak}</div>
+              <div className={`text-sm ${currentTheme.textMuted} font-medium`}>Best Streak</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Overall Career Stats */}
+        <div className="mb-6">
+          <h4 className={`text-xl font-bold mb-4 ${currentTheme.text}`}>🏆 Overall Career</h4>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className={`${currentTheme.glassPanel} rounded-2xl p-4 text-center`}>
+              <div className={`text-2xl font-bold ${currentTheme.text}`}>{stats.totalHands.toLocaleString()}</div>
+              <div className={`text-sm ${currentTheme.textMuted} font-medium`}>Total Hands</div>
+            </div>
+            <div className={`${currentTheme.glassPanel} rounded-2xl p-4 text-center`}>
+              <div className={`text-2xl font-bold ${overallAccuracy >= 80 ? 'text-green-600' : overallAccuracy >= 60 ? 'text-yellow-600' : 'text-red-600'}`}>
+                {overallAccuracy.toFixed(1)}%
+              </div>
+              <div className={`text-sm ${currentTheme.textMuted} font-medium`}>Overall Accuracy</div>
+            </div>
+            <div className={`${currentTheme.glassPanel} rounded-2xl p-4 text-center`}>
+              <div className={`text-2xl font-bold text-red-600`}>{stats.totalRTPLost.toFixed(1)}%</div>
+              <div className={`text-sm ${currentTheme.textMuted} font-medium`}>Total RTP Lost</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Performance by Game */}
+        <div className="mb-6">
+          <h4 className={`text-xl font-bold mb-4 ${currentTheme.text}`}>🎮 Performance by Game</h4>
+          <div className="space-y-2">
+            {Object.entries(stats.handsPerGame).map(([gameName, gameStats]) => {
+              const accuracy = gameStats.played > 0 ? (gameStats.correct / gameStats.played * 100) : 0;
+              return (
+                <div key={gameName} className={`${currentTheme.glassPanel} rounded-xl p-4 flex justify-between items-center`}>
+                  <div>
+                    <div className={`font-medium ${currentTheme.text}`}>{gameName}</div>
+                    <div className={`text-sm ${currentTheme.textMuted}`}>{gameStats.played} hands played</div>
+                  </div>
+                  <div className="text-right">
+                    <div className={`text-lg font-bold ${accuracy >= 80 ? 'text-green-600' : accuracy >= 60 ? 'text-yellow-600' : 'text-red-600'}`}>
+                      {accuracy.toFixed(1)}%
+                    </div>
+                    <div className={`text-sm ${currentTheme.textMuted}`}>{gameStats.correct}/{gameStats.played}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Mistake Analysis */}
+        <div className="mb-6">
+          <h4 className={`text-xl font-bold mb-4 ${currentTheme.text}`}>⚠️ Mistake Breakdown</h4>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+            {Object.entries(stats.mistakesBySeverity).map(([severity, count]) => {
+              const color = severity === "Excellent" ? "text-green-600" :
+                           severity === "Minor mistake" ? "text-yellow-600" :
+                           severity === "Moderate mistake" ? "text-orange-600" :
+                           severity === "Major mistake" ? "text-red-600" : "text-red-800";
+              return (
+                <div key={severity} className={`${currentTheme.glassPanel} rounded-xl p-3 text-center`}>
+                  <div className={`text-2xl font-bold ${color}`}>{count}</div>
+                  <div className={`text-xs ${currentTheme.textMuted} font-medium`}>{severity}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Recent Sessions */}
+        <div className="mb-6">
+          <h4 className={`text-xl font-bold mb-4 ${currentTheme.text}`}>📅 Recent Sessions</h4>
+          <div className="space-y-2">
+            {recentSessions.map(([date, session]) => {
+              const accuracy = session.hands > 0 ? (session.correct / session.hands * 100) : 0;
+              return (
+                <div key={date} className={`${currentTheme.glassPanel} rounded-xl p-4 flex justify-between items-center`}>
+                  <div>
+                    <div className={`font-medium ${currentTheme.text}`}>{new Date(date).toLocaleDateString()}</div>
+                    <div className={`text-sm ${currentTheme.textMuted}`}>{session.hands} hands</div>
+                  </div>
+                  <div className="text-right">
+                    <div className={`text-lg font-bold ${accuracy >= 80 ? 'text-green-600' : accuracy >= 60 ? 'text-yellow-600' : 'text-red-600'}`}>
+                      {accuracy.toFixed(1)}%
+                    </div>
+                    <div className={`text-sm ${currentTheme.textMuted}`}>{session.correct}/{session.hands}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-4 pt-4 border-t border-slate-200/30">
+          <button
+            onClick={onReset}
+            className={`px-6 py-3 rounded-xl ${currentTheme.dangerBtn} text-white font-medium`}
+          >
+            🗑️ Reset Career Stats
+          </button>
+          <button
+            onClick={onClose}
+            className={`px-6 py-3 rounded-xl ${currentTheme.secondaryBtn} text-white font-medium`}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function FullDeckPicker({
@@ -785,66 +1144,74 @@ function calculateMistakeSeverity(playerHold: number[], optimalHold: {hold: numb
 export default function App() {
 const [mode, setMode] = useState<"training" | "analysis">("training");
 const [theme, setTheme] = useState<"light" | "dark" | "casino">("light");
-const [cards, setCards] = useState<string[]>(["A♠","K♠","Q♠","J♠","10♠"]);
-const [game, setGame] = useState("Jacks or Better 9/6");
+const [cards, setCards] = useState<string[]>(() => getRandomHand());
+const [game, setGame] = useState(() => loadGameVariant());
 const [playerHold, setPlayerHold] = useState<number[]>([]);
 const [score, setScore] = useState({played:0, correct:0});
 const [history, setHistory] = useState<any[]>([]);
 const [showFullDeckPicker, setShowFullDeckPicker] = useState(false);
 const [tempSelectedCards, setTempSelectedCards] = useState<string[]>([]);
+const [showHandAnalysis, setShowHandAnalysis] = useState(false);
+const [careerStats, setCareerStats] = useState<CareerStats>(() => loadCareerStats());
+const [showCareerStats, setShowCareerStats] = useState(false);
 
 const paytable = PAYTABLES[game];
 
-// Theme configurations
+// Enhanced Theme configurations with modern design
 const themes = {
   light: {
-    bg: "bg-gradient-to-br from-blue-50 to-indigo-100",
+    bg: "bg-gradient-to-br from-slate-50 via-blue-50/80 to-indigo-100",
     cardBg: "bg-white",
-    primaryBtn: "bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800",
-    secondaryBtn: "bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-700 hover:to-gray-800",
-    successBtn: "bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800",
-    dangerBtn: "bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800",
-    panel: "bg-white/80 backdrop-blur-sm",
-    text: "text-gray-900",
-    textMuted: "text-gray-600",
-    border: "border-gray-200",
-    shadow: "shadow-xl",
+    primaryBtn: "bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 hover:from-blue-700 hover:via-blue-800 hover:to-indigo-800 shadow-lg shadow-blue-500/25 hover:shadow-xl hover:shadow-blue-500/30",
+    secondaryBtn: "bg-gradient-to-r from-slate-600 via-gray-700 to-slate-800 hover:from-slate-700 hover:via-gray-800 hover:to-slate-900 shadow-lg shadow-slate-500/25",
+    successBtn: "bg-gradient-to-r from-emerald-600 via-green-700 to-teal-700 hover:from-emerald-700 hover:via-green-800 hover:to-teal-800 shadow-lg shadow-emerald-500/25",
+    dangerBtn: "bg-gradient-to-r from-red-600 via-rose-700 to-red-700 hover:from-red-700 hover:via-rose-800 hover:to-red-800 shadow-lg shadow-red-500/25",
+    panel: "bg-white/70 backdrop-blur-xl border border-white/50 shadow-2xl shadow-slate-200/60",
+    text: "text-slate-900",
+    textMuted: "text-slate-600",
+    border: "border-slate-200/80",
+    shadow: "shadow-2xl shadow-slate-200/40",
+    cardShadow: "shadow-2xl shadow-slate-300/40 hover:shadow-3xl hover:shadow-slate-400/50",
+    glassPanel: "bg-gradient-to-br from-white/90 via-white/70 to-white/90 backdrop-blur-2xl border border-white/40",
   },
   dark: {
-    bg: "bg-gradient-to-br from-gray-900 to-black",
-    cardBg: "bg-gray-800",
-    primaryBtn: "bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700",
-    secondaryBtn: "bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700",
-    successBtn: "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700",
-    dangerBtn: "bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700",
-    panel: "bg-gray-800/90 backdrop-blur-sm border-gray-700",
-    text: "text-white",
-    textMuted: "text-gray-300",
-    border: "border-gray-600",
-    shadow: "shadow-2xl shadow-black/50",
+    bg: "bg-gradient-to-br from-slate-900 via-gray-900/95 to-black",
+    cardBg: "bg-white",
+    primaryBtn: "bg-gradient-to-r from-violet-600 via-purple-700 to-indigo-700 hover:from-violet-700 hover:via-purple-800 hover:to-indigo-800 shadow-lg shadow-violet-500/25 hover:shadow-xl hover:shadow-violet-500/30",
+    secondaryBtn: "bg-gradient-to-r from-slate-700 via-gray-800 to-slate-900 hover:from-slate-600 hover:via-gray-700 hover:to-slate-800 shadow-lg shadow-slate-500/25",
+    successBtn: "bg-gradient-to-r from-emerald-600 via-teal-700 to-cyan-700 hover:from-emerald-700 hover:via-teal-800 hover:to-cyan-800 shadow-lg shadow-emerald-500/25",
+    dangerBtn: "bg-gradient-to-r from-red-600 via-pink-700 to-rose-700 hover:from-red-700 hover:via-pink-800 hover:to-rose-800 shadow-lg shadow-red-500/25",
+    panel: "bg-slate-800/70 backdrop-blur-xl border border-slate-700/50 shadow-2xl shadow-black/60",
+    text: "text-slate-100",
+    textMuted: "text-slate-400",
+    border: "border-slate-700/80",
+    shadow: "shadow-2xl shadow-black/40",
+    cardShadow: "shadow-2xl shadow-black/60 hover:shadow-3xl hover:shadow-black/80",
+    glassPanel: "bg-gradient-to-br from-slate-800/90 via-slate-900/70 to-slate-800/90 backdrop-blur-2xl border border-slate-700/40",
   },
   casino: {
-    bg: "bg-gradient-to-br from-green-900 via-green-800 to-emerald-900",
+    bg: "bg-gradient-to-br from-emerald-900 via-green-900/95 to-teal-900",
     cardBg: "bg-white",
-    primaryBtn: "bg-gradient-to-r from-yellow-500 to-amber-600 hover:from-yellow-600 hover:to-amber-700",
-    secondaryBtn: "bg-gradient-to-r from-green-700 to-emerald-800 hover:from-green-600 hover:to-emerald-700",
-    successBtn: "bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700",
-    dangerBtn: "bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800",
-    panel: "bg-green-800/20 backdrop-blur-md border-green-600/30",
-    text: "text-white",
-    textMuted: "text-green-100",
-    border: "border-green-500/50",
-    shadow: "shadow-2xl shadow-green-900/50",
+    primaryBtn: "bg-gradient-to-r from-amber-500 via-yellow-600 to-orange-600 hover:from-amber-600 hover:via-yellow-700 hover:to-orange-700 shadow-lg shadow-amber-500/30 hover:shadow-xl hover:shadow-amber-500/40",
+    secondaryBtn: "bg-gradient-to-r from-emerald-700 via-green-800 to-teal-800 hover:from-emerald-600 hover:via-green-700 hover:to-teal-700 shadow-lg shadow-emerald-500/25",
+    successBtn: "bg-gradient-to-r from-lime-500 via-emerald-600 to-green-600 hover:from-lime-600 hover:via-emerald-700 hover:to-green-700 shadow-lg shadow-lime-500/25",
+    dangerBtn: "bg-gradient-to-r from-red-600 via-rose-700 to-red-700 hover:from-red-700 hover:via-rose-800 hover:to-red-800 shadow-lg shadow-red-500/25",
+    panel: "bg-emerald-800/30 backdrop-blur-xl border border-emerald-600/40 shadow-2xl shadow-emerald-900/60",
+    text: "text-emerald-50",
+    textMuted: "text-emerald-200",
+    border: "border-emerald-600/60",
+    shadow: "shadow-2xl shadow-emerald-900/50",
+    cardShadow: "shadow-2xl shadow-emerald-900/50 hover:shadow-3xl hover:shadow-emerald-900/70",
+    glassPanel: "bg-gradient-to-br from-emerald-800/50 via-green-900/40 to-emerald-800/50 backdrop-blur-2xl border border-emerald-600/30",
   }
 };
 
 const currentTheme = themes[theme];
 
 function dealRandom() {
-const deck = makeDeck();
-for(let i=deck.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [deck[i], deck[j]]=[deck[j],deck[i]]; }
-setCards(deck.slice(0,5));
+setCards(getRandomHand());
 setPlayerHold([]);
+setShowHandAnalysis(false); // Hide analysis for new hand
 }
 
 const best = useMemo(() => {
@@ -884,66 +1251,125 @@ const bestSorted = best.hold.slice().sort();
 const correct = playerSorted.length === bestSorted.length && 
                playerSorted.every((x, i) => x === bestSorted[i]);
 
+// Calculate mistake cost for career stats
+let mistakeCost = 0;
+let severity = "Excellent";
+if (!correct) {
+  const mistake = calculateMistakeSeverity(playerHold, best, cards, paytable);
+  mistakeCost = mistake.difference * 100; // Convert to percentage
+  severity = mistake.severity;
+}
+
 setScore(s => ({played: s.played+1, correct: s.correct + (correct?1:0)}));
 setHistory(h => [{cards, playerHold, bestHold: best.hold, correct}, ...h.slice(0,9)]);
+
+// Update and save career stats
+const updatedStats = updateCareerStats(careerStats, correct, game, mistakeCost, severity);
+setCareerStats(updatedStats);
+saveCareerStats(updatedStats);
+
+setShowHandAnalysis(false); // Hide analysis for new hand
 dealRandom();
 } catch (error) {
 // Handle error silently
 }
 }
 
-return (
-<div className={`min-h-screen p-6 transition-all duration-500 ${currentTheme.bg}`}>
-<div className="max-w-5xl mx-auto">
-{/* Header with Theme Toggle */}
-<div className="flex items-center justify-between mb-6">
-<motion.h1 initial={{opacity:0,y:-8}} animate={{opacity:1,y:0}} className={`text-4xl font-bold ${currentTheme.text}`}>
-🎰 What Should I Hold?
-</motion.h1>
+function resetCareerStats() {
+const newStats = getDefaultCareerStats();
+setCareerStats(newStats);
+saveCareerStats(newStats);
+setShowCareerStats(false);
+}
 
-{/* Theme Selector */}
-<div className="flex gap-2">
+function handleGameChange(newGame: string) {
+setGame(newGame);
+saveGameVariant(newGame);
+}
+
+return (
+<div className={`min-h-screen p-4 sm:p-6 lg:p-8 transition-all duration-500 ${currentTheme.bg}`}>
+<div className="max-w-7xl mx-auto">
+{/* Header with Theme Toggle */}
+<div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-8">
+<motion.div 
+  initial={{opacity:0,y:-20}} 
+  animate={{opacity:1,y:0}} 
+  transition={{duration:0.8, ease:"easeOut"}}
+  className="text-center mb-2"
+>
+  <h1 className={`text-6xl font-extrabold bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent mb-2 tracking-tight`}>
+    🎰 What Should I Hold?
+  </h1>
+  <p className={`text-lg font-medium ${currentTheme.textMuted} tracking-wide`}>
+    Professional Video Poker Strategy Trainer
+  </p>
+</motion.div>
+
+{/* Career Stats & Theme Selector */}
+<div className="flex flex-wrap gap-2 sm:gap-3 justify-center sm:justify-end items-center">
+<motion.button
+  onClick={() => setShowCareerStats(true)}
+  whileHover={{ scale: 1.05 }}
+  whileTap={{ scale: 0.95 }}
+  className={`px-4 py-2 rounded-xl font-semibold text-sm transition-all duration-300 ${currentTheme.glassPanel} ${currentTheme.text} hover:shadow-md border border-slate-200/30`}
+>
+  <span className="text-lg mr-2">📊</span>
+  Career Stats
+</motion.button>
 {(["light", "dark", "casino"] as const).map(themeOption => (
-<button
+<motion.button
   key={themeOption}
   onClick={() => setTheme(themeOption)}
-  className={`px-3 py-2 rounded-lg font-medium transition-all duration-300 ${
+  whileHover={{ scale: 1.05 }}
+  whileTap={{ scale: 0.95 }}
+  className={`px-3 sm:px-4 py-2 sm:py-3 text-sm sm:text-base rounded-xl font-semibold transition-all duration-300 ${
     theme === themeOption
-      ? themeOption === "light" ? "bg-blue-600 text-white shadow-lg" :
-        themeOption === "dark" ? "bg-purple-600 text-white shadow-lg" :
-        "bg-yellow-600 text-white shadow-lg"
-      : `${currentTheme.panel} ${currentTheme.textMuted} hover:scale-105`
+      ? themeOption === "light" ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg ring-2 ring-blue-400/50" :
+        themeOption === "dark" ? "bg-gradient-to-r from-purple-600 to-violet-600 text-white shadow-lg ring-2 ring-purple-400/50" :
+        "bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-lg ring-2 ring-amber-400/50"
+      : `${currentTheme.glassPanel} ${currentTheme.text} hover:shadow-md border border-slate-200/30`
   }`}
 >
-  {themeOption === "light" ? "☀️ Light" : 
-   themeOption === "dark" ? "🌙 Dark" : "🎰 Casino"}
-</button>
+  <span className="text-lg mr-2">
+    {themeOption === "light" ? "☀️" : 
+     themeOption === "dark" ? "🌙" : "🎰"}
+  </span>
+  {themeOption === "light" ? "Light" : 
+   themeOption === "dark" ? "Dark" : "Casino"}
+</motion.button>
 ))}
 </div>
 </div>
 
 {/* Mode Toggle */}
-<div className="flex gap-3 mb-8">
-<button 
+<div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-8 w-full sm:w-auto">
+<motion.button 
   onClick={() => setMode("training")}
-  className={`px-6 py-3 rounded-xl font-bold transition-all duration-300 ${
+  whileHover={{ scale: 1.05, y: -2 }}
+  whileTap={{ scale: 0.95 }}
+  className={`w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 text-sm sm:text-base rounded-2xl font-bold transition-all duration-300 ${
     mode === "training" 
-      ? `${currentTheme.primaryBtn} text-white ${currentTheme.shadow} transform scale-105` 
-      : `${currentTheme.panel} ${currentTheme.textMuted} hover:scale-105 ${currentTheme.border} border`
+      ? `${currentTheme.primaryBtn} text-white ${currentTheme.shadow} ring-2 ring-blue-400/50` 
+      : `${currentTheme.glassPanel} ${currentTheme.text} hover:shadow-lg border border-slate-200/50`
   }`}
 >
-  🎯 Training Mode
-</button>
-<button 
+  <span className="text-2xl mr-2">🎯</span>
+  Training Mode
+</motion.button>
+<motion.button 
   onClick={() => setMode("analysis")}
-  className={`px-6 py-3 rounded-xl font-bold transition-all duration-300 ${
+  whileHover={{ scale: 1.05, y: -2 }}
+  whileTap={{ scale: 0.95 }}
+  className={`w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 text-sm sm:text-base rounded-2xl font-bold transition-all duration-300 ${
     mode === "analysis" 
-      ? `${currentTheme.successBtn} text-white ${currentTheme.shadow} transform scale-105` 
-      : `${currentTheme.panel} ${currentTheme.textMuted} hover:scale-105 ${currentTheme.border} border`
+      ? `${currentTheme.successBtn} text-white ${currentTheme.shadow} ring-2 ring-emerald-400/50` 
+      : `${currentTheme.glassPanel} ${currentTheme.text} hover:shadow-lg border border-slate-200/50`
   }`}
 >
-  🔍 Hand Analysis
-</button>
+  <span className="text-2xl mr-2">🔍</span>
+  Hand Analysis
+</motion.button>
 </div>
 
 {mode === "training" ? (
@@ -951,9 +1377,9 @@ return (
 {/* Training Mode Content */}
 
 
-<div className={`${currentTheme.panel} rounded-xl p-6 mb-6 ${currentTheme.border} border ${currentTheme.shadow}`}>
+<div className={`${currentTheme.glassPanel} rounded-2xl p-8 mb-8 ${currentTheme.shadow}`}>
 <label className={`mr-3 font-bold text-lg ${currentTheme.text}`}>Game Variant:</label>
-<select value={game} onChange={e=>setGame(e.target.value)} className={`${currentTheme.panel} ${currentTheme.text} border rounded-lg px-4 py-2 font-medium ${currentTheme.border}`}>
+<select value={game} onChange={e=>handleGameChange(e.target.value)} className={`${currentTheme.panel} ${currentTheme.text} border rounded-lg px-4 py-2 font-medium ${currentTheme.border}`}>
 {Object.keys(PAYTABLES).map(g => <option key={g} value={g}>{g}</option>)}
 </select>
 </div>
@@ -987,16 +1413,74 @@ HOLD
 <button onClick={submitHold} className={`px-6 py-3 rounded-xl text-white font-bold transition-all duration-300 hover:scale-105 ${currentTheme.primaryBtn} ${currentTheme.shadow}`}>✅ Submit Hold</button>
 </div>
 
-<div className={`${currentTheme.panel} rounded-xl p-4 mb-6 ${currentTheme.border} border ${currentTheme.shadow}`}>
-<div className={`text-xl font-bold ${currentTheme.text}`}>🏆 Score: {score.correct}/{score.played} correct ({score.played > 0 ? Math.round((score.correct/score.played)*100) : 0}%)</div>
+<div className={`${currentTheme.glassPanel} rounded-2xl p-6 mb-8 ${currentTheme.shadow}`}>
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    {/* Current Session */}
+    <div>
+      <div className={`text-xl font-bold ${currentTheme.text} mb-2`}>🎮 Current Session</div>
+      <div className={`text-2xl font-bold ${score.played > 0 && score.correct/score.played >= 0.8 ? 'text-green-600' : score.played > 0 && score.correct/score.played >= 0.6 ? 'text-yellow-600' : 'text-slate-600'}`}>
+        {score.correct}/{score.played} ({score.played > 0 ? Math.round((score.correct/score.played)*100) : 0}%)
+      </div>
+      <div className={`text-sm ${currentTheme.textMuted} font-medium`}>
+        Streak: {careerStats.currentStreak}
+      </div>
+    </div>
+    
+    {/* Career Overview - Game Specific */}
+    <div>
+      <div className={`text-xl font-bold ${currentTheme.text} mb-2`}>🏆 {game} Career</div>
+      <div className={`text-2xl font-bold ${(() => {
+        const gameStats = careerStats.handsPerGame[game] || { played: 0, correct: 0 };
+        const accuracy = gameStats.played > 0 ? gameStats.correct/gameStats.played : 0;
+        return accuracy >= 0.8 ? 'text-green-600' : accuracy >= 0.6 ? 'text-yellow-600' : 'text-slate-600';
+      })()}`}>
+        {(() => {
+          const gameStats = careerStats.handsPerGame[game] || { played: 0, correct: 0 };
+          const accuracy = gameStats.played > 0 ? ((gameStats.correct/gameStats.played)*100).toFixed(1) : 0;
+          return `${gameStats.correct.toLocaleString()}/${gameStats.played.toLocaleString()} (${accuracy}%)`;
+        })()}
+      </div>
+      <div className={`text-sm ${currentTheme.textMuted} font-medium`}>
+        Best: {careerStats.bestStreak} • Mistakes: {careerStats.mistakesByGame[game] || 0}
+      </div>
+    </div>
+  </div>
 </div>
 
-{/* Hand Analysis in Training Mode */}
-<motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} className={`${currentTheme.panel} rounded-2xl ${currentTheme.shadow} p-6 ${currentTheme.border} border mb-6`}>
-<h3 className={`text-xl font-bold mb-4 ${currentTheme.text}`}>💡 Current Hand Analysis</h3>
+{/* Hand Analysis in Training Mode - Collapsible */}
+<motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} className={`${currentTheme.panel} rounded-2xl ${currentTheme.shadow} ${currentTheme.border} border mb-6 overflow-hidden`}>
+<button
+  onClick={() => setShowHandAnalysis(!showHandAnalysis)}
+  className={`w-full p-6 text-left transition-all duration-300 hover:bg-black/5 ${currentTheme.text} focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset`}
+>
+  <div className="flex items-center justify-between">
+    <h3 className="text-xl font-bold flex items-center gap-3">
+      <span className="text-2xl">💡</span>
+      Current Hand Analysis
+    </h3>
+    <motion.div
+      animate={{ rotate: showHandAnalysis ? 180 : 0 }}
+      transition={{ duration: 0.3 }}
+      className={`text-xl ${currentTheme.textMuted}`}
+    >
+      ↓
+    </motion.div>
+  </div>
+  <p className={`text-sm mt-2 ${currentTheme.textMuted} font-medium`}>
+    {showHandAnalysis ? 'Hide detailed strategy analysis' : 'Click to view optimal strategy and alternatives'}
+  </p>
+</button>
 
-{/* Strategy Options Comparison */}
-{(() => {
+{showHandAnalysis && (
+  <motion.div 
+    initial={{ opacity: 0, height: 0 }}
+    animate={{ opacity: 1, height: 'auto' }}
+    exit={{ opacity: 0, height: 0 }}
+    transition={{ duration: 0.4, ease: 'easeInOut' }}
+    className="px-6 pb-6"
+  >
+    {/* Strategy Options Comparison */}
+    {(() => {
 const allOptions = getAllStrategyOptions(cards, paytable, game);
 const optimalOption = allOptions[0];
 return (
@@ -1039,9 +1523,11 @@ return (
 </div>
 );
 })()}
+  </motion.div>
+)}
 </motion.div>
 
-<motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} className={`${currentTheme.panel} rounded-2xl ${currentTheme.shadow} p-6 ${currentTheme.border} border`}>
+<motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} className={`${currentTheme.glassPanel} rounded-3xl ${currentTheme.shadow} p-8`}>
 <div className={`text-xl font-bold mb-4 ${currentTheme.text}`}>🎯 Recent Hands</div>
 {history.length === 0 && <div className={`${currentTheme.textMuted} text-sm`}>No hands yet.</div>}
 {history.map((h, idx) => {
@@ -1060,10 +1546,10 @@ return (
 </span>
 {!h.correct && (
 <div className="flex gap-4 text-xs">
-<span>Your EV: {mistake.playerEV.toFixed(2)}</span>
-<span>Optimal EV: {mistake.optimalEV.toFixed(2)}</span>
+<span>Your RTP: {(mistake.playerEV * 100).toFixed(1)}%</span>
+<span>Optimal RTP: {(mistake.optimalEV * 100).toFixed(1)}%</span>
 <span className={`font-medium ${mistake.color}`}>
-Cost: -{mistake.difference.toFixed(2)} ({mistake.severity})
+Cost: -{(mistake.difference * 100).toFixed(1)}% ({mistake.severity})
 </span>
 </div>
 )}
@@ -1079,7 +1565,7 @@ Cost: -{mistake.difference.toFixed(2)} ({mistake.severity})
 {/* Analysis Mode Content */}
 <div className="mb-6">
 <label className="mr-2 font-semibold">Game:</label>
-<select value={game} onChange={e=>setGame(e.target.value)} className="border rounded px-2 py-1">
+<select value={game} onChange={e=>handleGameChange(e.target.value)} className="border rounded px-2 py-1">
 {Object.keys(PAYTABLES).map(g => <option key={g} value={g}>{g}</option>)}
 </select>
 </div>
@@ -1149,6 +1635,17 @@ OPTIMAL
   }}
   selectedCards={tempSelectedCards}
   setSelectedCards={setTempSelectedCards}
+/>
+
+{/* Career Stats Modal */}
+<CareerStatsModal
+  isOpen={showCareerStats}
+  onClose={() => setShowCareerStats(false)}
+  stats={careerStats}
+  onReset={resetCareerStats}
+  theme={theme}
+  currentGame={game}
+  onGameChange={handleGameChange}
 />
 
 {/* Analysis Results */}
@@ -1270,7 +1767,7 @@ return (
       <div>
         <div>• <strong>4-Card Flush Draw:</strong> 9 cards complete flush (19% chance)</div>
         <div>• <strong>Why Better:</strong> Flush pays {paytable.FLUSH}x, much higher than pair attempts</div>
-        <div>• <strong>Math:</strong> 9/47 × {paytable.FLUSH} = {(9/47 * paytable.FLUSH).toFixed(2)} EV vs {(1/47).toFixed(2)} for random pair</div>
+        <div>• <strong>Math:</strong> 9/47 × {paytable.FLUSH} = {((9/47 * paytable.FLUSH) * 100).toFixed(1)}% RTP vs {((1/47) * 100).toFixed(1)}% for random pair</div>
       </div>
     );
   } else if (pairs.length === 2) {
@@ -1296,7 +1793,7 @@ return (
       <div>
         <div>• <strong>No Draws Found:</strong> Hand has no profitable holding patterns</div>
         <div>• <strong>Best Option:</strong> Draw 5 fresh cards for maximum potential</div>
-        <div>• <strong>Expected Value:</strong> ~30% return from random 5-card hands</div>
+        <div>• <strong>RTP:</strong> ~30% return from random 5-card hands</div>
       </div>
     );
   }
@@ -1361,17 +1858,17 @@ return (
 <div className="grid grid-cols-2 gap-4 text-sm">
 <div className="space-y-1">
 <div><strong>Your Hold:</strong> {playerHold.map(i => cards[i]).join(", ")}</div>
-<div><strong>Your Expected Value:</strong> {comparison.playerEV.toFixed(3)}</div>
+<div><strong>Your RTP:</strong> {(comparison.playerEV * 100).toFixed(1)}%</div>
 </div>
 <div className="space-y-1">
 <div><strong>Optimal Hold:</strong> {best.hold.map(i => cards[i]).join(", ")}</div>
-<div><strong>Optimal Expected Value:</strong> {comparison.optimalEV.toFixed(3)}</div>
+<div><strong>Optimal RTP:</strong> {(comparison.optimalEV * 100).toFixed(1)}%</div>
 </div>
 <div className="col-span-2 pt-2 border-t">
 <div className={`text-center font-bold ${comparison.color}`}>
 {comparison.difference <= 0.05 ? 
   "🎉 Excellent choice!" :
-  `⚠️  ${comparison.severity}: -${comparison.difference.toFixed(3)} expected value`
+  `⚠️  ${comparison.severity}: -${(comparison.difference * 100).toFixed(1)}% RTP loss`
 }
 </div>
 </div>
@@ -1390,7 +1887,7 @@ return (
 <div><strong>Current Hand:</strong> {evaluate5(cards, paytable).name}</div>
 <div><strong>Current Payout:</strong> {evaluate5(cards, paytable).payout}x</div>
 <div><strong>Cards to Hold:</strong> {best.hold.length} cards</div>
-<div><strong>Expected Value:</strong> {best.ev.toFixed(3)}</div>
+<div><strong>RTP:</strong> {(best.ev * 100).toFixed(1)}%</div>
 </div>
 </div>
 

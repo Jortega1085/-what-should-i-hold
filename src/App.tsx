@@ -1285,7 +1285,7 @@ function calculateSimpleEV(hold: number[], cards: string[], paytable: Record<str
   return 0.2; // Nothing special
 }
 
-function calculateMistakeSeverity(playerHold: number[], optimalHold: {hold: number[], ev: number}, cards: string[], paytable: Record<string, number>): {playerEV: number, optimalEV: number, difference: number, severity: string, color: string} {
+function calculateMistakeSeverity(playerHold: number[], optimalHold: {hold: number[], ev: number}, cards: string[], paytable: Record<string, number>): {playerEV: number, optimalEV: number, difference: number, severity: string, color: string, severityDescription: string} {
   // Calculate player's expected value using the actual expectedValue function for accuracy
   let playerEV = 0;
   try {
@@ -1336,22 +1336,28 @@ function calculateMistakeSeverity(playerHold: number[], optimalHold: {hold: numb
   
   let severity = "";
   let color = "";
+  let severityDescription = "";
   
   if (difference <= 0.05) {
     severity = "Excellent";
     color = "text-green-600";
+    severityDescription = "Perfect or near-perfect play! Your decision was optimal or very close to it.";
   } else if (difference <= 0.2) {
     severity = "Minor mistake";
     color = "text-yellow-600";
+    severityDescription = "Small error with minimal impact. You chose a decent alternative but missed the optimal play.";
   } else if (difference <= 0.5) {
     severity = "Moderate mistake";
     color = "text-orange-600";
+    severityDescription = "Noticeable error that hurts your returns. This decision significantly reduces your expected value.";
   } else if (difference <= 1.0) {
     severity = "Major mistake";
     color = "text-red-600";
+    severityDescription = "Serious strategic error! This choice dramatically reduces your winning potential.";
   } else {
     severity = "Severe mistake";
     color = "text-red-800";
+    severityDescription = "Critical blunder! This decision is mathematically very poor and severely hurts your odds.";
   }
   
   return {
@@ -1359,7 +1365,8 @@ function calculateMistakeSeverity(playerHold: number[], optimalHold: {hold: numb
     optimalEV: optimalHold.ev,
     difference,
     severity,
-    color
+    color,
+    severityDescription
   };
 }
 
@@ -1449,13 +1456,17 @@ if (currentHand.key === "ROYAL" || currentHand.key === "STRAIGHT_FLUSH" ||
   return { hold: [0, 1, 2, 3, 4], ev: currentHand.payout };
 }
 
-// For games with bonus payouts, use sophisticated analysis
+// Get optimal hold from strategy engine
+let optimalHold;
 if (game === "Double Double Bonus") {
-  return getDoubleDoubleBonusStrategy(cards, paytable);
+  optimalHold = getDoubleDoubleBonusStrategy(cards, paytable);
+} else {
+  optimalHold = getStandardStrategy(cards, paytable);
 }
 
-// Professional strategy for other games
-return getStandardStrategy(cards, paytable);
+// Use exact expectedValue calculation for consistency across all displays
+const exactEV = expectedValue(cards, optimalHold.hold, paytable);
+return { hold: optimalHold.hold, ev: exactEV };
 } catch (error) {
 return { hold: [], ev: 0 };
 }
@@ -1766,13 +1777,17 @@ const historicalOptimal = useMemo(() => {
       return { hold: [0, 1, 2, 3, 4], ev: currentHand.payout };
     }
     
-    // For games with bonus payouts, use sophisticated analysis
+    // Get the optimal hold using strategy engine
+    let optimalHold;
     if (game === "Double Double Bonus") {
-      return getDoubleDoubleBonusStrategy(h.cards, paytable);
+      optimalHold = getDoubleDoubleBonusStrategy(h.cards, paytable);
+    } else {
+      optimalHold = getStandardStrategy(h.cards, paytable);
     }
     
-    // Professional strategy for other games
-    return getStandardStrategy(h.cards, paytable);
+    // Recalculate EV using the exact expectedValue function for consistency
+    const exactEV = expectedValue(h.cards, optimalHold.hold, paytable);
+    return { hold: optimalHold.hold, ev: exactEV };
   } catch (error) {
     return { hold: [], ev: 0 };
   }
@@ -1821,6 +1836,19 @@ return (
         <span className={`font-semibold ${mistake.color}`}>
           Cost: {h.correct ? `+${(mistake.difference * 100).toFixed(1)}%` : `-${(mistake.difference * 100).toFixed(1)}%`} ({mistake.severity})
         </span>
+      </div>
+      
+      {/* Detailed Mistake Analysis */}
+      {!h.correct && (
+        <div className={`mt-3 p-3 rounded-lg border-l-4 ${mistake.color.replace('text-', 'border-l-')} bg-gray-50`}>
+          <div className={`font-medium text-sm ${mistake.color} mb-1`}>
+            📝 Mistake Analysis: {mistake.severity}
+          </div>
+          <div className="text-sm text-gray-700">
+            {mistake.severityDescription}
+          </div>
+        </div>
+      )}
       </div>
     </div>
   </div>

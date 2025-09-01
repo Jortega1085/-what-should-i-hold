@@ -648,13 +648,22 @@ function CareerStatsModal({
     Math.max(0, 100 - (stats.totalRTPLost / stats.totalHands * 100)) : 100;
 
   return (
-    <motion.div 
-      initial={{opacity: 0, scale: 0.9}}
-      animate={{opacity: 1, scale: 1}}
-      exit={{opacity: 0, scale: 0.9}}
-      transition={{duration: 0.3}}
-      className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4"
-    >
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4" style={{ zIndex: 9999 }}>
+      <motion.div 
+        initial={{opacity: 0}}
+        animate={{opacity: 1}}
+        exit={{opacity: 0}}
+        transition={{duration: 0.3}}
+        className="fixed inset-0 bg-black bg-opacity-80"
+        onClick={onClose}
+      />
+      <motion.div 
+        initial={{opacity: 0, scale: 0.9}}
+        animate={{opacity: 1, scale: 1}}
+        exit={{opacity: 0, scale: 0.9}}
+        transition={{duration: 0.3}}
+        className="relative z-10"
+      >
       <div className={`${currentTheme.glassPanel} rounded-3xl p-8 max-w-7xl w-full max-h-[95vh] overflow-y-auto ${currentTheme.shadow} backdrop-blur-3xl`}>
         {/* Enhanced Header */}
         <div className="flex items-center justify-between mb-8">
@@ -948,7 +957,8 @@ function CareerStatsModal({
           </button>
         </div>
       </div>
-    </motion.div>
+      </motion.div>
+    </div>
   );
 }
 
@@ -1836,6 +1846,7 @@ OPTIMAL
   currentGame={game}
   onGameChange={handleGameChange}
 />
+
 
 {/* Analysis Results */}
 <motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} className="bg-white rounded-2xl shadow p-6">

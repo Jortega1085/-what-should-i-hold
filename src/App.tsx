@@ -495,6 +495,60 @@ onChange={(e)=>{
 );
 }
 
+function getPlayerStrategyExplanation(cards: string[], playerHold: number[], playerEV: number, game: string): string {
+  if (playerHold.length === 0) {
+    return "🎲 Drew 5 new cards - discarded entire hand for fresh start.";
+  }
+  
+  if (playerHold.length === 5) {
+    const currentHand = evaluate5(cards, PAYTABLES[game]);
+    return `🃏 Kept entire hand (${currentHand.name}) - ${currentHand.payout > 0 ? `pays ${currentHand.payout}x` : 'no payout'}.`;
+  }
+  
+  // Analyze what the player actually held
+  const heldCards = playerHold.map(i => cards[i]);
+  const heldRanks = heldCards.map(rank);
+  const heldSuits = heldCards.map(suit);
+  
+  // Check for pairs in held cards
+  const rankCounts: {[key: string]: number} = {};
+  heldRanks.forEach(r => rankCounts[r] = (rankCounts[r] || 0) + 1);
+  
+  const pairs = Object.entries(rankCounts).filter(([rank, count]) => count === 2);
+  const trips = Object.entries(rankCounts).filter(([rank, count]) => count === 3);
+  
+  if (trips.length > 0) {
+    const tripRank = trips[0][0];
+    return `🎯 Kept three ${tripRank}s - strong hold with ~25% chance to improve to full house or four of a kind.`;
+  }
+  
+  if (pairs.length > 0) {
+    const pairRank = pairs[0][0];
+    const pairValue = RANK_ORDER[pairRank] || 0;
+    if (pairValue >= 11) {
+      return `👑 Kept pair of ${pairRank}s - pays 1-for-1 immediately, ~11% chance to improve to trips or better.`;
+    } else {
+      return `🎲 Kept low pair (${pairRank}s) - doesn't pay now but ~27% chance to improve to paying hand.`;
+    }
+  }
+  
+  // Check for flush draws
+  if (new Set(heldSuits).size === 1 && heldCards.length === 4) {
+    return `🌊 Kept 4-card ${heldSuits[0]} flush draw - 19% chance (9/47) to complete flush for ${PAYTABLES[game].FLUSH}x payout.`;
+  }
+  
+  // Check for high cards
+  const highCards = heldCards.filter(c => ['J', 'Q', 'K', 'A'].includes(rank(c)));
+  if (highCards.length > 0) {
+    if (game === "Double Double Bonus" && heldCards.some(c => rank(c) === 'A')) {
+      return `🎯 Kept ${highCards.map(c => rank(c)).join(', ')} - in Double Double Bonus, Aces are especially valuable for bonus payouts.`;
+    }
+    return `👑 Kept high cards: ${highCards.map(c => rank(c)).join(', ')} - each has ~13% chance to pair for 1-for-1 payout.`;
+  }
+  
+  return `🤔 Kept ${heldCards.join(', ')} - unusual hold with estimated ${(playerEV * 100).toFixed(1)}% RTP.`;
+}
+
 function getStrategyExplanation(cards: string[], bestHold: {hold: number[], ev: number}, game: string): string {
 const currentHand = evaluate5(cards, PAYTABLES[game]);
 const heldCards = bestHold.hold.map(i => cards[i]);
@@ -1232,43 +1286,49 @@ function calculateSimpleEV(hold: number[], cards: string[], paytable: Record<str
 }
 
 function calculateMistakeSeverity(playerHold: number[], optimalHold: {hold: number[], ev: number}, cards: string[], paytable: Record<string, number>): {playerEV: number, optimalEV: number, difference: number, severity: string, color: string} {
-  // Calculate player's expected value (simplified approximation)
+  // Calculate player's expected value using the actual expectedValue function for accuracy
   let playerEV = 0;
-  if (playerHold.length === 5) {
-    // Holding all cards - get current hand value
-    playerEV = evaluate5(cards, paytable).payout;
-  } else if (playerHold.length === 0) {
-    // Drawing all 5 - very rough approximation
-    playerEV = 0.2;
-  } else {
-    // Simplified calculation based on what they're holding
-    const heldCards = playerHold.map(i => cards[i]);
-    const heldRanks = heldCards.map(rank);
-    const heldSuits = heldCards.map(suit);
-    
-    // Check for pairs in held cards
-    const rankCounts: {[key: string]: number} = {};
-    heldRanks.forEach(r => rankCounts[r] = (rankCounts[r] || 0) + 1);
-    
-    const pairs = Object.entries(rankCounts).filter(([rank, count]) => count === 2);
-    const trips = Object.entries(rankCounts).filter(([rank, count]) => count === 3);
-    
-    if (trips.length > 0) {
-      playerEV = 3; // Three of a kind base
-    } else if (pairs.length > 0) {
-      const pairRank = pairs[0][0];
-      const pairValue = RANK_ORDER[pairRank] || 0;
-      if (pairValue >= 11) {
-        playerEV = 1; // Jacks or better
-      } else {
-        playerEV = 0.8; // Low pair
-      }
-    } else if (new Set(heldSuits).size === 1 && heldCards.length === 4) {
-      playerEV = 2.3; // 4-card flush
-    } else if (heldCards.some(c => ['J', 'Q', 'K', 'A'].includes(rank(c)))) {
-      playerEV = 0.3 * heldCards.filter(c => ['J', 'Q', 'K', 'A'].includes(rank(c))).length;
+  try {
+    if (playerHold.length === 5) {
+      // Holding all cards - get current hand value
+      playerEV = evaluate5(cards, paytable).payout;
     } else {
-      playerEV = 0.2; // Nothing good
+      // Use the actual expected value calculation
+      playerEV = expectedValue(cards, playerHold, paytable);
+    }
+  } catch (error) {
+    // Fallback to simplified calculation if expectedValue fails
+    if (playerHold.length === 0) {
+      playerEV = 0.2; // Drawing all 5
+    } else {
+      const heldCards = playerHold.map(i => cards[i]);
+      const heldRanks = heldCards.map(rank);
+      const heldSuits = heldCards.map(suit);
+      
+      // Check for pairs in held cards
+      const rankCounts: {[key: string]: number} = {};
+      heldRanks.forEach(r => rankCounts[r] = (rankCounts[r] || 0) + 1);
+      
+      const pairs = Object.entries(rankCounts).filter(([rank, count]) => count === 2);
+      const trips = Object.entries(rankCounts).filter(([rank, count]) => count === 3);
+      
+      if (trips.length > 0) {
+        playerEV = 3; // Three of a kind base
+      } else if (pairs.length > 0) {
+        const pairRank = pairs[0][0];
+        const pairValue = RANK_ORDER[pairRank] || 0;
+        if (pairValue >= 11) {
+          playerEV = 1; // Jacks or better
+        } else {
+          playerEV = 0.8; // Low pair
+        }
+      } else if (new Set(heldSuits).size === 1 && heldCards.length === 4) {
+        playerEV = 2.3; // 4-card flush
+      } else if (heldCards.some(c => ['J', 'Q', 'K', 'A'].includes(rank(c)))) {
+        playerEV = 0.3 * heldCards.filter(c => ['J', 'Q', 'K', 'A'].includes(rank(c))).length;
+      } else {
+        playerEV = 0.2; // Nothing good
+      }
     }
   }
   
@@ -1721,8 +1781,10 @@ const historicalOptimal = useMemo(() => {
 // Calculate mistake info for this historical hand
 const mistake = calculateMistakeSeverity(h.playerHold, historicalOptimal, h.cards, paytable);
 
-// Get hand analysis for both player's choice and optimal choice  
-const playerAnalysis = h.playerHold.length > 0 ? getStrategyExplanation(h.cards, {hold: h.playerHold, ev: mistake.playerEV}, game) : "🎲 Draw 5 New Cards! No profitable holds found.";
+
+
+// Get hand analysis for both player's choice and optimal choice
+const playerAnalysis = getPlayerStrategyExplanation(h.cards, h.playerHold, mistake.playerEV, game);
 const optimalAnalysis = getStrategyExplanation(h.cards, historicalOptimal, game);
 
 return (

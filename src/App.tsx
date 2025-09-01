@@ -1694,12 +1694,36 @@ return (
 <div className={`text-xl font-bold mb-4 ${currentTheme.text}`}>🎯 Recent Hands</div>
 {history.length === 0 && <div className={`${currentTheme.textMuted} text-sm`}>No hands yet.</div>}
 {history.map((h, idx) => {
+// Recalculate optimal strategy for this historical hand to get correct EV
+const historicalOptimal = useMemo(() => {
+  try {
+    const currentHand = evaluate5(h.cards, paytable);
+    
+    // Always hold made hands with good payouts
+    if (currentHand.key === "ROYAL" || currentHand.key === "STRAIGHT_FLUSH" || 
+        currentHand.key === "FOUR_KIND" || currentHand.key === "FULL_HOUSE" || 
+        currentHand.key === "FLUSH" || currentHand.key === "STRAIGHT") {
+      return { hold: [0, 1, 2, 3, 4], ev: currentHand.payout };
+    }
+    
+    // For games with bonus payouts, use sophisticated analysis
+    if (game === "Double Double Bonus") {
+      return getDoubleDoubleBonusStrategy(h.cards, paytable);
+    }
+    
+    // Professional strategy for other games
+    return getStandardStrategy(h.cards, paytable);
+  } catch (error) {
+    return { hold: [], ev: 0 };
+  }
+}, [h.cards, paytable, game]);
+
 // Calculate mistake info for this historical hand
-const mistake = calculateMistakeSeverity(h.playerHold, {hold: h.bestHold, ev: 0}, h.cards, paytable);
+const mistake = calculateMistakeSeverity(h.playerHold, historicalOptimal, h.cards, paytable);
 
 // Get hand analysis for both player's choice and optimal choice  
 const playerAnalysis = h.playerHold.length > 0 ? getStrategyExplanation(h.cards, {hold: h.playerHold, ev: mistake.playerEV}, game) : "🎲 Draw 5 New Cards! No profitable holds found.";
-const optimalAnalysis = getStrategyExplanation(h.cards, {hold: h.bestHold, ev: mistake.optimalEV}, game);
+const optimalAnalysis = getStrategyExplanation(h.cards, historicalOptimal, game);
 
 return (
 <motion.div 
@@ -1721,7 +1745,7 @@ return (
     </div>
     <div className={`mb-3 ${currentTheme.textMuted}`}>
       <div><strong>Your Hold:</strong> {h.playerHold.length > 0 ? h.playerHold.map((i: number)=>h.cards[i]).join(", ") : "None"}</div>
-      <div><strong>Optimal:</strong> {h.bestHold.length > 0 ? h.bestHold.map((i: number)=>h.cards[i]).join(", ") : "None"}</div>
+      <div><strong>Optimal:</strong> {historicalOptimal.hold.length > 0 ? historicalOptimal.hold.map((i: number)=>h.cards[i]).join(", ") : "None"}</div>
     </div>
     
     {/* Performance Metrics */}

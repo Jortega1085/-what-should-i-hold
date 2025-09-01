@@ -1286,21 +1286,21 @@ function calculateSimpleEV(hold: number[], cards: string[], paytable: Record<str
 }
 
 function calculateMistakeSeverity(playerHold: number[], optimalHold: {hold: number[], ev: number}, cards: string[], paytable: Record<string, number>): {playerEV: number, optimalEV: number, difference: number, severity: string, color: string, severityDescription: string} {
-  // Calculate player's expected value using the actual expectedValue function for accuracy
+  // Calculate player's expected value - use simplified but reliable calculation
   let playerEV = 0;
-  try {
-    if (playerHold.length === 5) {
-      // Holding all cards - get current hand value
-      playerEV = evaluate5(cards, paytable).payout;
-    } else {
-      // Use the actual expected value calculation
+  
+  if (playerHold.length === 5) {
+    // Holding all cards - get current hand value
+    playerEV = evaluate5(cards, paytable).payout;
+  } else if (playerHold.length === 0) {
+    // Drawing all 5 - very rough approximation
+    playerEV = 0.2;
+  } else {
+    // Try to use expectedValue function, but with better error handling
+    try {
       playerEV = expectedValue(cards, playerHold, paytable);
-    }
-  } catch (error) {
-    // Fallback to simplified calculation if expectedValue fails
-    if (playerHold.length === 0) {
-      playerEV = 0.2; // Drawing all 5
-    } else {
+    } catch (error) {
+      // Fallback to simplified calculation
       const heldCards = playerHold.map(i => cards[i]);
       const heldRanks = heldCards.map(rank);
       const heldSuits = heldCards.map(suit);
@@ -1333,6 +1333,16 @@ function calculateMistakeSeverity(playerHold: number[], optimalHold: {hold: numb
   }
   
   const difference = optimalHold.ev - playerEV;
+  
+  // Debug logging
+  console.log('Mistake severity calculation:', {
+    playerHold,
+    optimalHold,
+    playerEV,
+    optimalEV: optimalHold.ev,
+    difference,
+    cards
+  });
   
   let severity = "";
   let color = "";
@@ -1456,17 +1466,13 @@ if (currentHand.key === "ROYAL" || currentHand.key === "STRAIGHT_FLUSH" ||
   return { hold: [0, 1, 2, 3, 4], ev: currentHand.payout };
 }
 
-// Get optimal hold from strategy engine
-let optimalHold;
+// For games with bonus payouts, use sophisticated analysis
 if (game === "Double Double Bonus") {
-  optimalHold = getDoubleDoubleBonusStrategy(cards, paytable);
-} else {
-  optimalHold = getStandardStrategy(cards, paytable);
+  return getDoubleDoubleBonusStrategy(cards, paytable);
 }
 
-// Use exact expectedValue calculation for consistency across all displays
-const exactEV = expectedValue(cards, optimalHold.hold, paytable);
-return { hold: optimalHold.hold, ev: exactEV };
+// Professional strategy for other games
+return getStandardStrategy(cards, paytable);
 } catch (error) {
 return { hold: [], ev: 0 };
 }
@@ -1777,17 +1783,12 @@ const historicalOptimal = useMemo(() => {
       return { hold: [0, 1, 2, 3, 4], ev: currentHand.payout };
     }
     
-    // Get the optimal hold using strategy engine
-    let optimalHold;
+    // Get the optimal hold using strategy engine - use its EV directly
     if (game === "Double Double Bonus") {
-      optimalHold = getDoubleDoubleBonusStrategy(h.cards, paytable);
+      return getDoubleDoubleBonusStrategy(h.cards, paytable);
     } else {
-      optimalHold = getStandardStrategy(h.cards, paytable);
+      return getStandardStrategy(h.cards, paytable);
     }
-    
-    // Recalculate EV using the exact expectedValue function for consistency
-    const exactEV = expectedValue(h.cards, optimalHold.hold, paytable);
-    return { hold: optimalHold.hold, ev: exactEV };
   } catch (error) {
     return { hold: [], ev: 0 };
   }

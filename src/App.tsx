@@ -1332,6 +1332,22 @@ function calculateMistakeSeverity(playerHold: number[], optimalHold: {hold: numb
     }
   }
   
+  // If optimal EV is 0 or very small, there's a problem with the calculation
+  if (optimalHold.ev <= 0.01) {
+    console.warn('Optimal EV is suspiciously low:', optimalHold.ev);
+    // Try to recalculate using expectedValue
+    try {
+      const recalculatedOptimalEV = expectedValue(cards, optimalHold.hold, paytable);
+      console.log('Recalculated optimal EV:', recalculatedOptimalEV);
+      if (recalculatedOptimalEV > optimalHold.ev) {
+        optimalHold.ev = recalculatedOptimalEV;
+      }
+    } catch (error) {
+      console.warn('Failed to recalculate optimal EV:', error);
+    }
+  }
+  
+  // Calculate difference after potential EV correction
   const difference = optimalHold.ev - playerEV;
   
   // Debug logging

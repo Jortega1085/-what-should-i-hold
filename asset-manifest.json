@@ -1,15 +1,15 @@
 {
   "files": {
-    "main.css": "/what-should-i-hold/static/css/main.3ad35718.css",
-    "main.js": "/what-should-i-hold/static/js/main.8d2e39d4.js",
-    "static/js/453.0eed2835.chunk.js": "/what-should-i-hold/static/js/453.0eed2835.chunk.js",
-    "index.html": "/what-should-i-hold/index.html",
-    "main.3ad35718.css.map": "/what-should-i-hold/static/css/main.3ad35718.css.map",
-    "main.8d2e39d4.js.map": "/what-should-i-hold/static/js/main.8d2e39d4.js.map",
-    "453.0eed2835.chunk.js.map": "/what-should-i-hold/static/js/453.0eed2835.chunk.js.map"
+    "main.css": "/-what-should-i-hold/static/css/main.3ad35718.css",
+    "main.js": "/-what-should-i-hold/static/js/main.9392fd55.js",
+    "static/js/453.0eed2835.chunk.js": "/-what-should-i-hold/static/js/453.0eed2835.chunk.js",
+    "index.html": "/-what-should-i-hold/index.html",
+    "main.3ad35718.css.map": "/-what-should-i-hold/static/css/main.3ad35718.css.map",
+    "main.9392fd55.js.map": "/-what-should-i-hold/static/js/main.9392fd55.js.map",
+    "453.0eed2835.chunk.js.map": "/-what-should-i-hold/static/js/453.0eed2835.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.3ad35718.css",
-    "static/js/main.8d2e39d4.js"
+    "static/js/main.9392fd55.js"
   ]
 }

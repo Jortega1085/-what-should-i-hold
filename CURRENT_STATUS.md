@@ -159,3 +159,4 @@ Your RTP: 30.5%  |  Optimal RTP: 0.0%  |  Cost: -30.5% (Excellent) [GREEN]
 ---
 
 **💡 Remember: The app works for current hand analysis, but Recent Hands mistake analysis is showing wrong values and severities. Focus on the `calculateMistakeSeverity()` function and EV calculation consistency.**
+

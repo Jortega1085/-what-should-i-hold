@@ -2,7 +2,7 @@ import React from "react";
 import { motion } from "framer-motion";
 
 import { PAYTABLES } from "../data/paytables";
-import { CareerStats } from "../types/stats";
+import { CareerStats } from "../types";
 
 type ThemeName = "light" | "dark" | "casino";
 
@@ -78,9 +78,9 @@ export function CareerStatsModal({
   const avgHandsPerSession = daysPlaying > 0 ? Math.round(stats.totalHands / daysPlaying) : 0;
   const mostPlayedGame = Object.entries(stats.handsPerGame)
     .sort(([, a], [, b]) => b.played - a.played)[0];
-  const rtpEfficiency = stats.totalRTPLost > 0
-    ? Math.max(0, 100 - (stats.totalRTPLost / stats.totalHands * 100))
-    : 100;
+  const rtpEfficiency = stats.totalHands > 0
+    ? Math.max(0, 100 - (stats.totalRTPLost * 100))
+    : 0;
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4" style={{ zIndex: 9999 }}>
@@ -170,7 +170,7 @@ export function CareerStatsModal({
                 </div>
                 <div className={`text-sm ${currentTheme.textMuted} font-bold`}>RTP Efficiency</div>
                 <div className={`text-xs ${currentTheme.textMuted} mt-1`}>
-                  {stats.totalRTPLost.toFixed(2)}% total lost
+                  {(stats.totalRTPLost * 100).toFixed(2)}% total lost
                 </div>
               </div>
 

@@ -1,142 +1,58 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 
 import { PAYTABLES } from "./data/paytables";
 import {
-  RANK_ORDER,
   rank,
   suit,
   makeDeck,
   getRandomHand,
-  expectedValue,
-  evaluateHand,
   enumerateHoldEvs,
   getOptimalHoldForGame
 } from "./logic/solver";
-import { HistoryEntry } from "./types/history";
-import { CareerStats } from "./types/stats";
+import { HistoryEntry } from "./types";
+import { CareerStats } from "./types";
 import { CareerStatsModal } from "./components/CareerStatsModal";
 import { FullDeckPicker } from "./components/FullDeckPicker";
-import { HistoryList } from "./components/HistoryList";
+import { CasinoMode } from "./components/CasinoMode";
+import { TrainingMode } from "./components/TrainingMode";
+import { StrategyDisplay } from "./components/StrategyDisplay";
+import {
+  getDefaultCareerStats,
+  loadCareerStats,
+  saveCareerStats,
+  updateCareerStats,
+  loadGameVariant,
+  saveGameVariant
+} from "./utils/careerStats";
+import { getPlayerStrategyExplanation, getStrategyExplanation } from "./utils/strategyExplanations";
+import { calculateMistakeSeverity } from "./utils/mistakeCalculation";
 
-// Career Stats Management
-function getDefaultCareerStats(): CareerStats {
-  return {
-    totalHands: 0,
-    correctDecisions: 0,
-    totalRTPGained: 0,
-    totalRTPLost: 0,
-    mistakesByGame: {},
-    mistakesBySeverity: {
-      "Excellent": 0,
-      "Minor mistake": 0,
-      "Moderate mistake": 0,
-      "Major mistake": 0,
-      "Severe mistake": 0
-    },
-    sessionsByDate: {},
-    bestStreak: 0,
-    currentStreak: 0,
-    startDate: new Date().toISOString().split('T')[0],
-    lastPlayed: new Date().toISOString().split('T')[0],
-    handsPerGame: {}
-  };
+// Helper Functions
+function getCardColor(cardSuit: string): string {
+  return cardSuit === "♥" || cardSuit === "♦" ? "text-red-500" : "text-black";
 }
 
-function loadCareerStats(): CareerStats {
-  try {
-    const saved = localStorage.getItem('videoPokerCareerStats');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      // Ensure all required fields exist (for backwards compatibility)
-      return { ...getDefaultCareerStats(), ...parsed };
-    }
-  } catch (error) {
-    console.warn('Failed to load career stats:', error);
-  }
-  return getDefaultCareerStats();
+function describeHold(cards: string[], hold: number[]): string {
+  if (hold.length === 0) return "Draw 5 new cards";
+  if (hold.length === 5) return "Keep all 5 cards";
+  const heldCards = hold.map(index => cards[index]);
+  return `Hold ${heldCards.join(', ')}`;
 }
 
-function saveCareerStats(stats: CareerStats): void {
-  try {
-    localStorage.setItem('videoPokerCareerStats', JSON.stringify(stats));
-  } catch (error) {
-    console.warn('Failed to save career stats:', error);
-  }
+function getAllStrategyOptions(cards: string[], paytable: Record<string, number>): {hold: number[], ev: number, description: string}[] {
+  return enumerateHoldEvs(cards, paytable)
+    .slice(0, 4)
+    .map(option => ({
+      ...option,
+      description: describeHold(cards, option.hold)
+    }));
 }
 
-function loadGameVariant(): string {
-  try {
-    return localStorage.getItem('videoPokerGameVariant') || 'Jacks or Better 9/6';
-  } catch (error) {
-    return 'Jacks or Better 9/6';
-  }
-}
+// Career stats functions, strategy explanations, and mistake calculations are now imported from utils
 
-function saveGameVariant(game: string): void {
-  try {
-    localStorage.setItem('videoPokerGameVariant', game);
-  } catch (error) {
-    console.warn('Failed to save game variant:', error);
-  }
-}
-
-function updateCareerStats(
-  currentStats: CareerStats, 
-  correct: boolean, 
-  game: string, 
-  mistakeCost: number, 
-  severity: string
-): CareerStats {
-  const today = new Date().toISOString().split('T')[0];
-  const newStats = { ...currentStats };
-  
-  // Update basic counters
-  newStats.totalHands += 1;
-  if (correct) {
-    newStats.correctDecisions += 1;
-    newStats.currentStreak += 1;
-    newStats.bestStreak = Math.max(newStats.bestStreak, newStats.currentStreak);
-  } else {
-    newStats.currentStreak = 0;
-    newStats.totalRTPLost += mistakeCost;
-  }
-  
-  // Track by game variant
-  if (!newStats.handsPerGame[game]) {
-    newStats.handsPerGame[game] = { played: 0, correct: 0 };
-  }
-  newStats.handsPerGame[game].played += 1;
-  if (correct) {
-    newStats.handsPerGame[game].correct += 1;
-  }
-  
-  // Track mistakes by game and severity
-  if (!correct) {
-    newStats.mistakesByGame[game] = (newStats.mistakesByGame[game] || 0) + 1;
-    newStats.mistakesBySeverity[severity] = (newStats.mistakesBySeverity[severity] || 0) + 1;
-  }
-  
-  // Track daily sessions
-  if (!newStats.sessionsByDate[today]) {
-    newStats.sessionsByDate[today] = { hands: 0, correct: 0, rtpGained: 0, rtpLost: 0 };
-  }
-  newStats.sessionsByDate[today].hands += 1;
-  if (correct) {
-    newStats.sessionsByDate[today].correct += 1;
-  } else {
-    newStats.sessionsByDate[today].rtpLost += mistakeCost;
-  }
-  
-  newStats.lastPlayed = today;
-  
-  return newStats;
-}
-
-function getCardColor(suit: string) {
-  return suit === "♥" || suit === "♦" ? "text-red-500" : "text-black";
-}
-
+// Removed duplicate getPlayerStrategyExplanation - now imported from utils
+/*
 function getPlayerStrategyExplanation(cards: string[], playerHold: number[], playerEV: number, game: string): string {
   if (playerHold.length === 0) {
     return "🎲 Drew 5 new cards - discarded entire hand for fresh start.";
@@ -273,24 +189,13 @@ if (bestHold.hold.length === 0) {
 
 return `Hold ${bestHold.hold.length} cards with RTP: ${(bestHold.ev * 100).toFixed(1)}%`;
 }
+*/
 
 // Professional Career Statistics Modal Component
-function describeHold(cards: string[], hold: number[]): string {
-  if (hold.length === 0) return "Draw 5 new cards";
-  if (hold.length === 5) return "Keep all 5 cards";
-  const heldCards = hold.map(index => cards[index]);
-  return `Hold ${heldCards.join(', ')}`;
-}
+// Removed duplicate describeHold and getAllStrategyOptions - already defined at the top of file
 
-function getAllStrategyOptions(cards: string[], paytable: Record<string, number>): {hold: number[], ev: number, description: string}[] {
-  return enumerateHoldEvs(cards, paytable)
-    .slice(0, 4)
-    .map(option => ({
-      ...option,
-      description: describeHold(cards, option.hold)
-    }));
-}
-
+// Removed duplicate calculateMistakeSeverity - now imported from utils
+/*
 function calculateMistakeSeverity(
   playerHold: number[],
   optimalHold: {hold: number[], ev: number},
@@ -350,6 +255,7 @@ function calculateMistakeSeverity(
     severityDescription
   };
 }
+*/
 
 
 export default function App() {
@@ -365,6 +271,8 @@ const [tempSelectedCards, setTempSelectedCards] = useState<string[]>([]);
 const [showHandAnalysis, setShowHandAnalysis] = useState(false);
 const [careerStats, setCareerStats] = useState<CareerStats>(() => loadCareerStats());
 const [showCareerStats, setShowCareerStats] = useState(false);
+const [showCasino, setShowCasino] = useState(false);
+const [isCalculatingBest, setIsCalculatingBest] = useState(false);
 
 const paytable = PAYTABLES[game];
 
@@ -420,18 +328,39 @@ const themes = {
 const currentTheme = themes[theme];
 
 function dealRandom() {
-setCards(getRandomHand());
+const newCards = getRandomHand();
+setCards(newCards);
 setPlayerHold([]);
 setShowHandAnalysis(false); // Hide analysis for new hand
+setIsCalculatingBest(true);
 }
 
-const best = useMemo(() => {
-try {
-return getOptimalHoldForGame(cards, paytable, game);
-} catch (error) {
-return { hold: [], ev: 0 };
-}
-}, [cards, paytable, game]);
+const [best, setBest] = useState<{hold: number[], ev: number}>({ hold: [], ev: 0 });
+
+// Calculate best move asynchronously after cards change
+useEffect(() => {
+  if (isCalculatingBest) {
+    // Use setTimeout to defer the expensive calculation
+    const timeoutId = setTimeout(() => {
+      try {
+        const optimalHold = getOptimalHoldForGame(cards, paytable, game);
+        setBest(optimalHold);
+      } catch (error) {
+        setBest({ hold: [], ev: 0 });
+      }
+      setIsCalculatingBest(false);
+    }, 0);
+    return () => clearTimeout(timeoutId);
+  } else {
+    // Calculate immediately for initial load or game change
+    try {
+      const optimalHold = getOptimalHoldForGame(cards, paytable, game);
+      setBest(optimalHold);
+    } catch (error) {
+      setBest({ hold: [], ev: 0 });
+    }
+  }
+}, [cards, paytable, game, isCalculatingBest]);
 
 
 function toggleHold(i:number) {
@@ -441,49 +370,71 @@ else setPlayerHold(ph => [...ph,i]);
 
 function submitHold() {
 try {
+// Store current cards and hold for async processing
+const submittedCards = [...cards];
+const submittedPlayerHold = [...playerHold];
+const submittedBest = {...best};
+
 // Check if player's hold matches the optimal hold
-const playerSorted = playerHold.slice().sort();
-const bestSorted = best.hold.slice().sort();
-const correct = playerSorted.length === bestSorted.length && 
+const playerSorted = submittedPlayerHold.slice().sort();
+const bestSorted = submittedBest.hold.slice().sort();
+const correct = playerSorted.length === bestSorted.length &&
                playerSorted.every((x, i) => x === bestSorted[i]);
 
-// Calculate mistake cost for career stats
-let mistakeCost = 0;
-let severity = "Excellent";
-if (!correct) {
-  const mistake = calculateMistakeSeverity(playerHold, best, cards, paytable);
-  mistakeCost = mistake.difference * 100; // Convert to percentage
-  severity = mistake.severity;
-}
-
+// Update score and history immediately for better responsiveness
 setScore(s => ({played: s.played+1, correct: s.correct + (correct?1:0)}));
 setHistory(h => [{
-  cards,
-  playerHold,
-  bestHold: best.hold.slice(),
+  cards: submittedCards,
+  playerHold: submittedPlayerHold,
+  bestHold: submittedBest.hold.slice(),
   correct,
   gameVariant: game,
-  optimalHold: best.hold.slice(),
-  optimalEv: best.ev
+  optimalHold: submittedBest.hold.slice(),
+  optimalEv: submittedBest.ev
 }, ...h.slice(0, 9)]);
 
-// Update and save career stats
-const updatedStats = updateCareerStats(careerStats, correct, game, mistakeCost, severity);
-setCareerStats(updatedStats);
-saveCareerStats(updatedStats);
-
-setShowHandAnalysis(false); // Hide analysis for new hand
+// Deal new hand immediately for better UX
+setShowHandAnalysis(false);
 dealRandom();
+
+// Calculate mistake severity and update stats asynchronously to avoid blocking UI
+setTimeout(() => {
+  let mistakeCost = 0;
+  let severity = "Excellent";
+  if (!correct) {
+    const mistake = calculateMistakeSeverity(submittedPlayerHold, submittedBest, submittedCards, paytable);
+    mistakeCost = mistake.difference;
+    severity = mistake.severity;
+  }
+
+  // Update career stats in the background
+  const updatedStats = updateCareerStats(careerStats, correct, game, mistakeCost, severity);
+  setCareerStats(updatedStats);
+  saveCareerStats(updatedStats);
+}, 0);
+
 } catch (error) {
 // Handle error silently
 }
 }
 
 function resetCareerStats() {
-const newStats = getDefaultCareerStats();
-setCareerStats(newStats);
-saveCareerStats(newStats);
-setShowCareerStats(false);
+const confirmReset = window.confirm(
+  "⚠️ Are you sure you want to reset all career statistics?\n\n" +
+  "This will permanently delete:\n" +
+  "• All game history\n" +
+  "• Accuracy records\n" +
+  "• Best streaks\n" +
+  "• Performance data\n\n" +
+  "This action cannot be undone!"
+);
+
+if (confirmReset) {
+  const newStats = getDefaultCareerStats();
+  setCareerStats(newStats);
+  saveCareerStats(newStats);
+  setShowCareerStats(false);
+}
 }
 
 function handleGameChange(newGame: string) {
@@ -521,7 +472,16 @@ return (
   <span className="text-lg mr-2">📊</span>
   Career Stats
 </motion.button>
-{(["light", "dark", "casino"] as const).map(themeOption => (
+<motion.button
+  onClick={() => setShowCasino(true)}
+  whileHover={{ scale: 1.05 }}
+  whileTap={{ scale: 0.95 }}
+  className="px-4 py-2 rounded-xl font-semibold text-sm bg-gradient-to-r from-red-600 via-yellow-600 to-red-600 text-white shadow-lg hover:shadow-xl border-2 border-yellow-400 animate-pulse"
+>
+  <span className="text-lg mr-2">🎰</span>
+  Casino Play
+</motion.button>
+{(["light", "dark"] as const).map(themeOption => (
 <motion.button
   key={themeOption}
   onClick={() => setTheme(themeOption)}
@@ -530,17 +490,14 @@ return (
   className={`px-3 sm:px-4 py-2 sm:py-3 text-sm sm:text-base rounded-xl font-semibold transition-all duration-300 ${
     theme === themeOption
       ? themeOption === "light" ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg ring-2 ring-blue-400/50" :
-        themeOption === "dark" ? "bg-gradient-to-r from-purple-600 to-violet-600 text-white shadow-lg ring-2 ring-purple-400/50" :
-        "bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-lg ring-2 ring-amber-400/50"
+        "bg-gradient-to-r from-purple-600 to-violet-600 text-white shadow-lg ring-2 ring-purple-400/50"
       : `${currentTheme.glassPanel} ${currentTheme.text} hover:shadow-md border border-slate-200/30`
   }`}
 >
   <span className="text-lg mr-2">
-    {themeOption === "light" ? "☀️" : 
-     themeOption === "dark" ? "🌙" : "🎰"}
+    {themeOption === "light" ? "☀️" : "🌙"}
   </span>
-  {themeOption === "light" ? "Light" : 
-   themeOption === "dark" ? "Dark" : "Casino"}
+  {themeOption === "light" ? "Light" : "Dark"}
 </motion.button>
 ))}
 </div>
@@ -577,188 +534,28 @@ return (
 </div>
 
 {mode === "training" ? (
-<div>
-{/* Training Mode Content */}
-
-
-<div className={`${currentTheme.glassPanel} rounded-2xl p-8 mb-8 ${currentTheme.shadow}`}>
-<label className={`mr-3 font-bold text-lg ${currentTheme.text}`}>Game Variant:</label>
-<select value={game} onChange={e=>handleGameChange(e.target.value)} className={`${currentTheme.panel} ${currentTheme.text} border rounded-lg px-4 py-2 font-medium ${currentTheme.border}`}>
-{Object.keys(PAYTABLES).map(g => <option key={g} value={g}>{g}</option>)}
-</select>
-</div>
-
-<div className={`${currentTheme.glassPanel} rounded-2xl p-6 mb-8 ${currentTheme.shadow}`}>
-  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-    {/* Current Session */}
-    <div>
-      <div className={`text-xl font-bold ${currentTheme.text} mb-2`}>🎮 Current Session</div>
-      <div className={`text-2xl font-bold ${score.played > 0 && score.correct/score.played >= 0.8 ? 'text-green-600' : score.played > 0 && score.correct/score.played >= 0.6 ? 'text-yellow-600' : 'text-slate-600'}`}>
-        {score.correct}/{score.played} ({score.played > 0 ? Math.round((score.correct/score.played)*100) : 0}%)
-      </div>
-      <div className={`text-sm ${currentTheme.textMuted} font-medium`}>
-        Streak: {careerStats.currentStreak}
-      </div>
-    </div>
-
-    {/* Career Overview - Game Specific */}
-    <div>
-      <div className={`text-xl font-bold ${currentTheme.text} mb-2`}>🏆 {game} Career</div>
-      <div className={`text-2xl font-bold ${(() => {
-        const gameStats = careerStats.handsPerGame[game] || { played: 0, correct: 0 };
-        const accuracy = gameStats.played > 0 ? gameStats.correct/gameStats.played : 0;
-        return accuracy >= 0.8 ? 'text-green-600' : accuracy >= 0.6 ? 'text-yellow-600' : 'text-slate-600';
-      })()}`}>
-        {(() => {
-          const gameStats = careerStats.handsPerGame[game] || { played: 0, correct: 0 };
-          const accuracy = gameStats.played > 0 ? ((gameStats.correct/gameStats.played)*100).toFixed(1) : 0;
-          return `${gameStats.correct.toLocaleString()}/${gameStats.played.toLocaleString()} (${accuracy}%)`;
-        })()}
-      </div>
-      <div className={`text-sm ${currentTheme.textMuted} font-medium`}>
-        Best: {careerStats.bestStreak} • Mistakes: {careerStats.mistakesByGame[game] || 0}
-      </div>
-    </div>
-  </div>
-</div>
-
-<div className="grid grid-cols-5 gap-4 mb-6">
-{cards.map((c,i) => {
-const cardRank = rank(c);
-const cardSuit = suit(c);
-const colorClass = getCardColor(cardSuit);
-return (
-<div key={i} className="flex flex-col items-center gap-2">
-<div className="text-sm text-gray-500">Card {i+1}</div>
-<button onClick={()=>toggleHold(i)} className={`relative w-16 h-24 rounded-xl border-2 ${currentTheme.cardBg} ${currentTheme.shadow} transition-all duration-300 hover:shadow-2xl hover:scale-105 ${playerHold.includes(i)?"border-green-500 bg-green-100":"border-gray-300 hover:border-blue-400"}`}>
-<div className={`flex flex-col items-center justify-center h-full ${colorClass}`}>
-<div className="text-lg font-bold">{cardRank}</div>
-<div className="text-xl">{cardSuit}</div>
-</div>
-{playerHold.includes(i) && (
-<div className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 bg-green-600 text-white text-xs px-2 py-1 rounded font-bold">
-HOLD
-</div>
-)}
-</button>
-</div>
-);
-})}
-</div>
-
-<div className="flex gap-4 mb-8">
-<button onClick={dealRandom} className={`px-6 py-3 rounded-xl text-white font-bold transition-all duration-300 hover:scale-105 ${currentTheme.secondaryBtn} ${currentTheme.shadow}`}>🎲 Deal Random</button>
-<button onClick={submitHold} className={`px-6 py-3 rounded-xl text-white font-bold transition-all duration-300 hover:scale-105 ${currentTheme.primaryBtn} ${currentTheme.shadow}`}>✅ Submit Hold</button>
-</div>
-
-{/* Hand Analysis Button - Fixed to Right Side */}
-<div className="fixed right-4 top-1/2 transform -translate-y-1/2 z-50">
-  <motion.button
-    onClick={() => setShowHandAnalysis(!showHandAnalysis)}
-    whileHover={{ scale: 1.05 }}
-    whileTap={{ scale: 0.95 }}
-    className={`${currentTheme.glassPanel} ${currentTheme.shadow} rounded-xl p-3 transition-all duration-300 hover:shadow-xl ${currentTheme.text}`}
-    title={showHandAnalysis ? 'Hide Analysis' : 'Show Analysis'}
-  >
-    <div className="flex flex-col items-center gap-1">
-      <span className="text-2xl">💡</span>
-      <span className="text-xs font-semibold">Analysis</span>
-      <motion.div
-        animate={{ rotate: showHandAnalysis ? 180 : 0 }}
-        transition={{ duration: 0.3 }}
-        className={`text-sm ${currentTheme.textMuted}`}
-      >
-        {showHandAnalysis ? '→' : '←'}
-      </motion.div>
-    </div>
-  </motion.button>
-</div>
-
-{/* Hand Analysis Panel - Slides in from Right */}
-{showHandAnalysis && (
-  <motion.div
-    initial={{ x: '100%', opacity: 0 }}
-    animate={{ x: 0, opacity: 1 }}
-    exit={{ x: '100%', opacity: 0 }}
-    transition={{ duration: 0.3, ease: 'easeInOut' }}
-    className="fixed right-20 top-1/2 transform -translate-y-1/2 z-40 w-96 max-h-[80vh] overflow-y-auto"
-  >
-    <div className={`${currentTheme.panel} rounded-2xl ${currentTheme.shadow} ${currentTheme.border} border p-6`}>
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-xl font-bold flex items-center gap-2">
-          <span className="text-2xl">💡</span>
-          Current Hand Analysis
-        </h3>
-        <button
-          onClick={() => setShowHandAnalysis(false)}
-          className={`${currentTheme.textMuted} hover:${currentTheme.text} transition-colors`}
-        >
-          ✕
-        </button>
-      </div>
-
-      {/* Strategy Options Comparison */}
-      {(() => {
-        const allOptions = getAllStrategyOptions(cards, paytable);
-        const optimalOption = allOptions[0];
-        return (
-          <div className="space-y-3">
-            {/* Optimal Choice */}
-            <div className="bg-green-100 border border-green-300 rounded-lg p-3">
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-bold text-green-800">🏆 OPTIMAL CHOICE</span>
-                <span className="text-green-700 font-medium">RTP: {(optimalOption.ev * 100).toFixed(1)}%</span>
-              </div>
-              <div className="text-green-700">
-                <div className="mb-1">
-                  <strong>Hold:</strong> {optimalOption.hold.length > 0 ? optimalOption.hold.map(i => cards[i]).join(", ") : "None (Draw 5)"}
-                </div>
-                <div className="text-sm">
-                  <strong>Why:</strong> {getStrategyExplanation(cards, best, game)}
-                </div>
-              </div>
-            </div>
-
-            {/* Alternative Options */}
-            {allOptions.slice(1, 3).map((option, idx) => {
-              const difference = optimalOption.ev - option.ev;
-              let severityColor = difference <= 0.1 ? "yellow" : difference <= 0.5 ? "orange" : "red";
-              return (
-                <div key={idx} className={`bg-${severityColor}-50 border border-${severityColor}-200 rounded-lg p-3`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className={`font-medium text-${severityColor}-800`}>#{idx + 2} Alternative</span>
-                    <div className="text-right text-sm">
-                      <div className={`text-${severityColor}-700 font-medium`}>RTP: {(option.ev * 100).toFixed(1)}%</div>
-                      <div className={`text-${severityColor}-600 text-xs`}>Cost: -{(difference * 100).toFixed(1)}%</div>
-                    </div>
-                  </div>
-                  <div className={`text-${severityColor}-700 text-sm`}>
-                    <strong>Hold:</strong> {option.hold.length > 0 ? option.hold.map(i => cards[i]).join(", ") : "None"} - {option.description}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        );
-      })()}
-    </div>
-  </motion.div>
-)}
-
-<motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} className={`${currentTheme.glassPanel} rounded-3xl ${currentTheme.shadow} p-8`}>
-<div className={`text-xl font-bold mb-4 ${currentTheme.text}`}>🎯 Recent Hands</div>
-{history.length === 0 && <div className={`${currentTheme.textMuted} text-sm`}>No hands yet.</div>}
-<HistoryList
-  history={history}
-  currentTheme={currentTheme}
-  fallbackPaytable={paytable}
-  defaultGame={game}
-  calculateMistakeSeverity={calculateMistakeSeverity}
-  getPlayerStrategyExplanation={getPlayerStrategyExplanation}
-  getStrategyExplanation={getStrategyExplanation}
-/>
-</motion.div>
-</div>
+  <TrainingMode
+    game={game}
+    cards={cards}
+    playerHold={playerHold}
+    score={score}
+    careerStats={careerStats}
+    history={history}
+    showHandAnalysis={showHandAnalysis}
+    currentTheme={currentTheme}
+    paytable={paytable}
+    best={best}
+    handleGameChange={handleGameChange}
+    toggleHold={toggleHold}
+    dealRandom={dealRandom}
+    submitHold={submitHold}
+    setShowHandAnalysis={setShowHandAnalysis}
+    getCardColor={getCardColor}
+    getAllStrategyOptions={getAllStrategyOptions}
+    getStrategyExplanation={getStrategyExplanation}
+    calculateMistakeSeverity={calculateMistakeSeverity}
+    getPlayerStrategyExplanation={getPlayerStrategyExplanation}
+  />
 ) : (
 <div>
 {/* Analysis Mode Content */}
@@ -771,7 +568,7 @@ HOLD
 
 <div className="bg-white rounded-2xl shadow p-6 mb-6">
 <h3 className="text-xl font-bold mb-4">🔍 Current Hand Analysis</h3>
-<div className="grid grid-cols-5 gap-4 mb-6">
+<div className="flex justify-center gap-5 mb-6">
 {cards.map((card, i) => {
 const cardRank = rank(card);
 const cardSuit = suit(card);
@@ -841,259 +638,15 @@ OPTIMAL
 
 
 {/* Analysis Results */}
-<motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} className="bg-white rounded-2xl shadow p-6">
-<h3 className="text-xl font-bold mb-4">📊 Strategy Analysis</h3>
-
-{/* Current Hand Display */}
-<div className="mb-6">
-<h4 className="font-semibold mb-3">Your Hand:</h4>
-<div className="flex gap-3 justify-center mb-4">
-{cards.map((c,i) => {
-const cardRank = rank(c);
-const cardSuit = suit(c);
-const colorClass = getCardColor(cardSuit);
-const isHeld = best.hold.includes(i);
-return (
-<div key={i} className={`relative w-14 h-20 rounded-lg border-2 bg-white shadow-md ${isHeld ? "border-green-500 bg-green-50" : "border-gray-300"}`}>
-<div className={`flex flex-col items-center justify-center h-full ${colorClass}`}>
-<div className="text-base font-bold">{cardRank}</div>
-<div className="text-lg">{cardSuit}</div>
-</div>
-{isHeld && (
-<div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 bg-green-600 text-white text-xs px-1 py-0.5 rounded font-bold">
-HOLD
-</div>
-)}
-</div>
-);
-})}
-</div>
-</div>
-
-{/* Strategy Options Comparison */}
-<div className="bg-blue-50 rounded-lg p-4 mb-4">
-<h4 className="font-semibold text-blue-800 mb-3">💡 Strategy Analysis & Options</h4>
-{(() => {
-const allOptions = getAllStrategyOptions(cards, paytable);
-const optimalOption = allOptions[0];
-return (
-<div className="space-y-3">
-{/* Optimal Choice */}
-<div className="bg-green-100 border border-green-300 rounded-lg p-3">
-<div className="flex items-center justify-between mb-2">
-<span className="font-bold text-green-800">🏆 OPTIMAL CHOICE</span>
-<span className="text-green-700 font-medium">RTP: {(optimalOption.ev * 100).toFixed(1)}%</span>
-</div>
-<div className="text-green-700">
-<div className="mb-1">
-<strong>Hold:</strong> {optimalOption.hold.length > 0 ? optimalOption.hold.map(i => cards[i]).join(", ") : "None (Draw 5)"}
-</div>
-<div className="text-sm">
-<strong>Why:</strong> {getStrategyExplanation(cards, best, game)}
-</div>
-</div>
-</div>
-
-{/* Alternative Options */}
-{allOptions.slice(1, 3).map((option, idx) => {
-const difference = optimalOption.ev - option.ev;
-let severityColor = difference <= 0.1 ? "yellow" : difference <= 0.5 ? "orange" : "red";
-return (
-<div key={idx} className={`bg-${severityColor}-50 border border-${severityColor}-200 rounded-lg p-3`}>
-<div className="flex items-center justify-between mb-2">
-<span className={`font-medium text-${severityColor}-800`}>#{idx + 2} Alternative</span>
-<div className="text-right text-sm">
-<div className={`text-${severityColor}-700 font-medium`}>RTP: {(option.ev * 100).toFixed(1)}%</div>
-<div className={`text-${severityColor}-600 text-xs`}>Cost: -{(difference * 100).toFixed(1)}%</div>
-</div>
-</div>
-<div className={`text-${severityColor}-700 text-sm`}>
-<strong>Hold:</strong> {option.hold.length > 0 ? option.hold.map(i => cards[i]).join(", ") : "None"} - {option.description}
-</div>
-</div>
-);
-})}
-
-{/* Detailed Strategic Reasoning */}
-<div className="bg-gray-50 rounded-lg p-3 mt-3">
-<h5 className="font-semibold text-gray-800 mb-2">📋 Strategic Reasoning:</h5>
-<div className="text-sm text-gray-700 space-y-1">
-{(() => {
-  const currentHand = evaluateHand(cards, paytable);
-  const ranks = cards.map(rank);
-  const suits = cards.map(suit);
-  
-  if (currentHand.payout > 0) {
-    return (
-      <div>
-        <div>• <strong>Current Hand:</strong> {currentHand.name} (pays {currentHand.payout}x)</div>
-        <div>• <strong>Decision:</strong> Hold paying hand - guaranteed return beats any draw</div>
-        <div>• <strong>Risk:</strong> Zero risk vs. uncertain improvement from draws</div>
-      </div>
-    );
-  }
-  
-  // Check for draws
-  const suitCounts: {[key: string]: number} = {};
-  suits.forEach(s => suitCounts[s] = (suitCounts[s] || 0) + 1);
-  const flushDraw = Object.values(suitCounts).some(count => count === 4);
-  
-  const pairs: number[] = [];
-  const rankCounts: {[key: string]: number[]} = {};
-  ranks.forEach((r, i) => {
-    if (!rankCounts[r]) rankCounts[r] = [];
-    rankCounts[r].push(i);
-  });
-  
-  for (const positions of Object.values(rankCounts)) {
-    if (positions.length === 2) {
-      pairs.push(...positions);
-      break;
-    }
-  }
-  
-  const highCards = [0,1,2,3,4].filter(i => ['J', 'Q', 'K', 'A'].includes(ranks[i]));
-  
-  if (flushDraw) {
-    return (
-      <div>
-        <div>• <strong>4-Card Flush Draw:</strong> 9 cards complete flush (19% chance)</div>
-        <div>• <strong>Why Better:</strong> Flush pays {paytable.FLUSH}x, much higher than pair attempts</div>
-        <div>• <strong>Math:</strong> 9/47 × {paytable.FLUSH} = {((9/47 * paytable.FLUSH) * 100).toFixed(1)}% RTP vs {((1/47) * 100).toFixed(1)}% for random pair</div>
-      </div>
-    );
-  } else if (pairs.length === 2) {
-    const pairRank = ranks[pairs[0]];
-    const isHighPair = ['J', 'Q', 'K', 'A'].includes(pairRank);
-    return (
-      <div>
-        <div>• <strong>Pair Strategy:</strong> {pairRank} pair {isHighPair ? "(high)" : "(low)"}</div>
-        <div>• <strong>Improvement Odds:</strong> ~11% for trips, ~16% for two pair or better</div>
-        <div>• <strong>Why Hold:</strong> {isHighPair ? "Immediate 1x payout + improvement potential" : "No immediate payout but 27% improvement chance"}</div>
-      </div>
-    );
-  } else if (highCards.length > 0) {
-    return (
-      <div>
-        <div>• <strong>High Cards:</strong> {highCards.map(i => ranks[i]).join(", ")} give pair potential</div>
-        <div>• <strong>Pair Odds:</strong> ~13% chance per high card to pair up</div>
-        <div>• <strong>Strategy:</strong> {game.includes("Double") ? "In bonus games, Aces are especially valuable for jackpot potential" : "Any J+ pair pays 1-for-1"}</div>
-      </div>
-    );
-  } else {
-    return (
-      <div>
-        <div>• <strong>No Draws Found:</strong> Hand has no profitable holding patterns</div>
-        <div>• <strong>Best Option:</strong> Draw 5 fresh cards for maximum potential</div>
-        <div>• <strong>RTP:</strong> ~30% return from random 5-card hands</div>
-      </div>
-    );
-  }
-})()}
-</div>
-</div>
-</div>
-);
-})()}
-</div>
-
-{/* Interactive Hold Testing */}
-<div className="bg-yellow-50 rounded-lg p-4 mb-4">
-<h4 className="font-semibold text-yellow-800 mb-3">🧪 Test Your Hold vs Optimal</h4>
-<div className="mb-3">
-<p className="text-sm text-yellow-700 mb-2">Click cards below to test different hold strategies:</p>
-<div className="flex gap-2 flex-wrap">
-{cards.map((c, i) => {
-const cardRank = rank(c);
-const cardSuit = suit(c);
-const colorClass = getCardColor(cardSuit);
-const isHeld = playerHold.includes(i);
-return (
-<button
-  key={i}
-  onClick={() => {
-    if (isHeld) {
-      setPlayerHold(ph => ph.filter(x => x !== i));
-    } else {
-      setPlayerHold(ph => [...ph, i]);
-    }
-  }}
-  className={`w-12 h-16 rounded border-2 transition-all text-xs ${
-    isHeld 
-      ? "border-purple-500 bg-purple-50" 
-      : "border-gray-300 bg-white hover:border-purple-300"
-  }`}
->
-<div className={`${colorClass}`}>
-<div className="font-bold">{cardRank}</div>
-<div>{cardSuit}</div>
-</div>
-{isHeld && <div className="text-purple-600 text-xs font-bold">HOLD</div>}
-</button>
-);
-})}
-</div>
-<button 
-  onClick={() => setPlayerHold([])}
-  className="mt-2 px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600"
->
-Clear Holds
-</button>
-</div>
-
-{/* Comparison Results */}
-{playerHold.length > 0 && (
-<div className="border-t pt-3">
-{(() => {
-const comparison = calculateMistakeSeverity(playerHold, best, cards, paytable);
-return (
-<div className="grid grid-cols-2 gap-4 text-sm">
-<div className="space-y-1">
-<div><strong>Your Hold:</strong> {playerHold.map(i => cards[i]).join(", ")}</div>
-<div><strong>Your RTP:</strong> {(comparison.playerEV * 100).toFixed(1)}%</div>
-</div>
-<div className="space-y-1">
-<div><strong>Optimal Hold:</strong> {best.hold.map(i => cards[i]).join(", ")}</div>
-<div><strong>Optimal RTP:</strong> {(comparison.optimalEV * 100).toFixed(1)}%</div>
-</div>
-<div className="col-span-2 pt-2 border-t">
-<div className={`text-center font-bold ${comparison.color}`}>
-{comparison.difference <= 0.05 ? 
-  "🎉 Excellent choice!" :
-  `⚠️  ${comparison.severity}: -${(comparison.difference * 100).toFixed(1)}% RTP loss`
-}
-</div>
-</div>
-</div>
-);
-})()}
-</div>
-)}
-</div>
-
-{/* Hand Information */}
-<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-<div className="bg-gray-50 rounded-lg p-4">
-<h4 className="font-semibold mb-2">📋 Hand Details</h4>
-<div className="space-y-1 text-sm">
-<div><strong>Current Hand:</strong> {evaluateHand(cards, paytable).name}</div>
-<div><strong>Current Payout:</strong> {evaluateHand(cards, paytable).payout}x</div>
-<div><strong>Cards to Hold:</strong> {best.hold.length} cards</div>
-<div><strong>RTP:</strong> {(best.ev * 100).toFixed(1)}%</div>
-</div>
-</div>
-
-<div className="bg-gray-50 rounded-lg p-4">
-<h4 className="font-semibold mb-2">🎮 Game Info</h4>
-<div className="space-y-1 text-sm">
-<div><strong>Variant:</strong> {game}</div>
-<div><strong>Royal Flush:</strong> {paytable.ROYAL}x</div>
-<div><strong>Full House:</strong> {paytable.FULL_HOUSE}x</div>
-<div><strong>Flush:</strong> {paytable.FLUSH}x</div>
-</div>
-</div>
-</div>
-</motion.div>
+<StrategyDisplay
+  cards={cards}
+  paytable={paytable}
+  best={best}
+  game={game}
+  getAllStrategyOptions={getAllStrategyOptions}
+  getStrategyExplanation={getStrategyExplanation}
+  getCardColor={getCardColor}
+/>
 </div>
 )}
 </div>
@@ -1107,6 +660,13 @@ return (
   theme={theme}
   currentGame={game}
   onGameChange={handleGameChange}
+/>
+
+{/* Casino Mode - Full Screen Video Poker Machine */}
+<CasinoMode
+  isOpen={showCasino}
+  onClose={() => setShowCasino(false)}
+  game={game}
 />
 </div>
 );

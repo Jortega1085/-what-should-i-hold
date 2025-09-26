@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 
 import { PAYTABLES } from "../data/paytables";
 import { getOptimalHoldForGame, Paytable } from "../logic/solver";
-import { HistoryEntry } from "../types/history";
+import { HistoryEntry } from "../types";
 
 interface OptimalHold {
   hold: number[];
@@ -58,10 +58,10 @@ export function HistoryList({
         return (
           <motion.div
             key={idx}
-            initial={{ opacity: 0, y: 10 }}
+            initial={{ opacity: 1, y: 0 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: idx * 0.1 }}
-            className={`mb-4 p-4 rounded-2xl border transition-all duration-300 ${
+            transition={{ duration: 0 }}
+            className={`mb-4 p-4 rounded-2xl border ${
               entry.correct
                 ? `${currentTheme.glassPanel} border-green-500/30 bg-gradient-to-r from-green-50/50 to-emerald-50/50`
                 : `${currentTheme.glassPanel} border-red-500/30 bg-gradient-to-r from-red-50/50 to-rose-50/50`
@@ -93,7 +93,7 @@ export function HistoryList({
                       Optimal RTP: <span className="font-semibold">{(mistake.optimalEV * 100).toFixed(1)}%</span>
                     </span>
                     <span className={`font-semibold ${mistake.color}`}>
-                      Cost: {entry.correct ? `+${(mistake.difference * 100).toFixed(1)}%` : `-${(mistake.difference * 100).toFixed(1)}%`} ({mistake.severity})
+                      Cost: {entry.correct ? "0.0%" : `-${Math.abs(mistake.difference * 100).toFixed(1)}% (${mistake.severity})`}
                     </span>
                   </div>
 

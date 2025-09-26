@@ -1,0 +1,1188 @@
+import React, { useState, useMemo } from "react";
+import { motion } from "framer-motion";
+
+import { PAYTABLES } from "./data/paytables";
+import {
+  RANK_ORDER,
+  rank,
+  suit,
+  makeDeck,
+  getRandomHand,
+  expectedValue,
+  evaluateHand,
+  enumerateHoldEvs,
+  getOptimalHoldForGame
+} from "./logic/solver";
+import { HistoryEntry } from "./types/history";
+import { CareerStats } from "./types/stats";
+import { CareerStatsModal } from "./components/CareerStatsModal";
+import { FullDeckPicker } from "./components/FullDeckPicker";
+import { HistoryList } from "./components/HistoryList";
+import { CasinoMode } from "./components/CasinoMode";
+import { themes, ThemeName } from "./config/themes";
+import {
+  getDefaultCareerStats,
+  loadCareerStats,
+  saveCareerStats,
+  updateCareerStats,
+  loadGameVariant,
+  saveGameVariant
+} from "./utils/careerStats";
+import { getPlayerStrategyExplanation, getStrategyExplanation } from "./utils/strategyExplanations";
+import { calculateMistakeSeverity } from "./utils/mistakeCalculation";
+
+// Helper Functions
+function getCardColor(cardSuit: string): string {
+  return cardSuit === "♥" || cardSuit === "♦" ? "text-red-500" : "text-black";
+}
+
+function describeHold(cards: string[], hold: number[]): string {
+  if (hold.length === 0) return "Draw 5 new cards";
+  if (hold.length === 5) return "Keep all 5 cards";
+  const heldCards = hold.map(index => cards[index]);
+  return `Hold ${heldCards.join(', ')}`;
+}
+
+function getAllStrategyOptions(cards: string[], paytable: Record<string, number>): {hold: number[], ev: number, description: string}[] {
+  return enumerateHoldEvs(cards, paytable)
+    .slice(0, 4)
+    .map(option => ({
+      ...option,
+      description: describeHold(cards, option.hold)
+    }));
+}
+
+// Remove duplicate function definitions
+// Career stats functions now imported from utils
+// Strategy explanation functions now imported from utils
+// Mistake calculation now imported from utils
+
+// Removed duplicate functions - now using imports from utils
+    correctDecisions: 0,
+    totalRTPGained: 0,
+    totalRTPLost: 0,
+    mistakesByGame: {},
+    mistakesBySeverity: {
+      "Excellent": 0,
+      "Minor mistake": 0,
+      "Moderate mistake": 0,
+      "Major mistake": 0,
+      "Severe mistake": 0
+    },
+    sessionsByDate: {},
+    bestStreak: 0,
+    currentStreak: 0,
+    startDate: new Date().toISOString().split('T')[0],
+    lastPlayed: new Date().toISOString().split('T')[0],
+    handsPerGame: {}
+  };
+}
+
+function loadCareerStats(): CareerStats {
+  try {
+    const saved = localStorage.getItem('videoPokerCareerStats');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Fix for old incorrect RTP calculation
+      if (parsed.totalRTPLost && parsed.totalRTPLost > 10) {
+        // The value was incorrectly multiplied by 10000 (100 twice)
+        // So divide by 10000 to get the correct decimal value
+        parsed.totalRTPLost = parsed.totalRTPLost / 10000;
+        // Also fix session data
+        if (parsed.sessionsByDate) {
+          Object.values(parsed.sessionsByDate).forEach((session: any) => {
+            if (session.rtpLost && session.rtpLost > 10) {
+              session.rtpLost = session.rtpLost / 10000;
+            }
+          });
+        }
+      }
+      // Ensure all required fields exist (for backwards compatibility)
+      return { ...getDefaultCareerStats(), ...parsed };
+    }
+  } catch (error) {
+    console.warn('Failed to load career stats:', error);
+  }
+  return getDefaultCareerStats();
+}
+
+function saveCareerStats(stats: CareerStats): void {
+  try {
+    localStorage.setItem('videoPokerCareerStats', JSON.stringify(stats));
+  } catch (error) {
+    console.warn('Failed to save career stats:', error);
+  }
+}
+
+function loadGameVariant(): string {
+  try {
+    return localStorage.getItem('videoPokerGameVariant') || 'Jacks or Better 9/6';
+  } catch (error) {
+    return 'Jacks or Better 9/6';
+  }
+}
+
+function saveGameVariant(game: string): void {
+  try {
+    localStorage.setItem('videoPokerGameVariant', game);
+  } catch (error) {
+    console.warn('Failed to save game variant:', error);
+  }
+}
+
+function updateCareerStats(
+  currentStats: CareerStats, 
+  correct: boolean, 
+  game: string, 
+  mistakeCost: number, 
+  severity: string
+): CareerStats {
+  const today = new Date().toISOString().split('T')[0];
+  const newStats = { ...currentStats };
+  
+  // Update basic counters
+  newStats.totalHands += 1;
+  if (correct) {
+    newStats.correctDecisions += 1;
+    newStats.currentStreak += 1;
+    newStats.bestStreak = Math.max(newStats.bestStreak, newStats.currentStreak);
+  } else {
+    newStats.currentStreak = 0;
+    newStats.totalRTPLost += mistakeCost;
+  }
+  
+  // Track by game variant
+  if (!newStats.handsPerGame[game]) {
+    newStats.handsPerGame[game] = { played: 0, correct: 0 };
+  }
+  newStats.handsPerGame[game].played += 1;
+  if (correct) {
+    newStats.handsPerGame[game].correct += 1;
+  }
+  
+  // Track mistakes by game and severity
+  if (!correct) {
+    newStats.mistakesByGame[game] = (newStats.mistakesByGame[game] || 0) + 1;
+    newStats.mistakesBySeverity[severity] = (newStats.mistakesBySeverity[severity] || 0) + 1;
+  }
+  
+  // Track daily sessions
+  if (!newStats.sessionsByDate[today]) {
+    newStats.sessionsByDate[today] = { hands: 0, correct: 0, rtpGained: 0, rtpLost: 0 };
+  }
+  newStats.sessionsByDate[today].hands += 1;
+  if (correct) {
+    newStats.sessionsByDate[today].correct += 1;
+  } else {
+    newStats.sessionsByDate[today].rtpLost += mistakeCost;
+  }
+  
+  newStats.lastPlayed = today;
+  
+  return newStats;
+}
+
+function getCardColor(suit: string) {
+  return suit === "♥" || suit === "♦" ? "text-red-500" : "text-black";
+}
+
+function getPlayerStrategyExplanation(cards: string[], playerHold: number[], playerEV: number, game: string): string {
+  if (playerHold.length === 0) {
+    return "🎲 Drew 5 new cards - discarded entire hand for fresh start.";
+  }
+  
+  if (playerHold.length === 5) {
+    const currentHand = evaluateHand(cards, PAYTABLES[game]);
+    return `🃏 Kept entire hand (${currentHand.name}) - ${currentHand.payout > 0 ? `pays ${currentHand.payout}x` : 'no payout'}.`;
+  }
+  
+  // Analyze what the player actually held
+  const heldCards = playerHold.map(i => cards[i]);
+  const heldRanks = heldCards.map(rank);
+  const heldSuits = heldCards.map(suit);
+  
+  // Check for pairs in held cards
+  const rankCounts: {[key: string]: number} = {};
+  heldRanks.forEach(r => rankCounts[r] = (rankCounts[r] || 0) + 1);
+  
+  const pairs = Object.entries(rankCounts).filter(([rank, count]) => count === 2);
+  const trips = Object.entries(rankCounts).filter(([rank, count]) => count === 3);
+  
+  if (trips.length > 0) {
+    const tripRank = trips[0][0];
+    return `🎯 Kept three ${tripRank}s - strong hold with ~25% chance to improve to full house or four of a kind.`;
+  }
+  
+  if (pairs.length > 0) {
+    const pairRank = pairs[0][0];
+    const pairValue = RANK_ORDER[pairRank] || 0;
+    if (pairValue >= 11) {
+      return `👑 Kept pair of ${pairRank}s - pays 1-for-1 immediately, ~11% chance to improve to trips or better.`;
+    } else {
+      return `🎲 Kept low pair (${pairRank}s) - doesn't pay now but ~27% chance to improve to paying hand.`;
+    }
+  }
+  
+  // Check for flush draws
+  if (new Set(heldSuits).size === 1 && heldCards.length === 4) {
+    return `🌊 Kept 4-card ${heldSuits[0]} flush draw - 19% chance (9/47) to complete flush for ${PAYTABLES[game].FLUSH}x payout.`;
+  }
+  
+  // Check for high cards
+  const highCards = heldCards.filter(c => ['J', 'Q', 'K', 'A'].includes(rank(c)));
+  if (highCards.length > 0) {
+    if (game === "Double Double Bonus" && heldCards.some(c => rank(c) === 'A')) {
+      return `🎯 Kept ${highCards.map(c => rank(c)).join(', ')} - in Double Double Bonus, Aces are especially valuable for bonus payouts.`;
+    }
+    return `👑 Kept high cards: ${highCards.map(c => rank(c)).join(', ')} - each has ~13% chance to pair for 1-for-1 payout.`;
+  }
+  
+  return `🤔 Kept ${heldCards.join(', ')} - unusual hold with estimated ${(playerEV * 100).toFixed(1)}% RTP.`;
+}
+
+function getStrategyExplanation(cards: string[], bestHold: {hold: number[], ev: number}, game: string): string {
+const currentHand = evaluateHand(cards, PAYTABLES[game]);
+const ranks = cards.map(rank);
+const suits = cards.map(suit);
+
+// Made hands
+if (currentHand.payout > 0) {
+  if (currentHand.key === "ROYAL") return "🏆 Royal Flush! This is the highest paying hand - always hold all 5 cards.";
+  if (currentHand.key === "STRAIGHT_FLUSH") return "🔥 Straight Flush! Hold all 5 cards for the second highest payout.";
+  if (currentHand.key === "FOUR_KIND") return "💎 Four of a Kind! Hold all 5 cards for a guaranteed big payout.";
+  if (currentHand.key === "FULL_HOUSE") return "🏠 Full House! Hold all 5 cards - this pays well in all variants.";
+  if (currentHand.key === "FLUSH") return "🌊 Flush! Hold all 5 cards for a solid payout.";
+  if (currentHand.key === "STRAIGHT") return "📈 Straight! Hold all 5 cards for a decent payout.";
+  if (currentHand.key === "THREE_KIND") return `🎯 Three of a Kind (${ranks[bestHold.hold[0]]}s)! Hold the three matching cards and draw 2 new ones.`;
+  if (currentHand.key === "TWO_PAIR") return "👥 Two Pair! Hold both pairs and draw 1 card for the full house chance.";
+  if (currentHand.key === "JacksOrBetter") return `👑 Pair of ${ranks[bestHold.hold[0]]}s! This pair pays 1-for-1. Hold the pair and draw 3 cards.`;
+}
+
+// Draw situations
+if (bestHold.hold.length === 4) {
+  const heldSuits = bestHold.hold.map(i => suits[i]);
+  const heldRanks = bestHold.hold.map(i => ranks[i]);
+  
+  // 4-card flush
+  if (new Set(heldSuits).size === 1) {
+    return `🌊 4-Card Flush Draw (${heldSuits[0]})! You have a 19% chance (9/47 cards) to complete the flush. RTP: ${(bestHold.ev * 100).toFixed(1)}%`;
+  }
+  
+  // 4-card straight
+  const sortedValues = heldRanks.map(r => RANK_ORDER[r]).sort((a,b) => b-a);
+  let isConsecutive = true;
+  for (let i = 1; i < sortedValues.length; i++) {
+    if (sortedValues[i-1] - sortedValues[i] !== 1) {
+      isConsecutive = false;
+      break;
+    }
+  }
+  if (isConsecutive) {
+    return `📈 4-Card Straight Draw! You need 8 cards to complete the straight. RTP: ${(bestHold.ev * 100).toFixed(1)}%`;
+  }
+}
+
+if (bestHold.hold.length === 3) {
+  const heldRanks = bestHold.hold.map(i => ranks[i]);
+  const heldSuits = bestHold.hold.map(i => suits[i]);
+  
+  // 3-card royal
+  const royals = ['10', 'J', 'Q', 'K', 'A'];
+  if (new Set(heldSuits).size === 1 && heldRanks.every(r => royals.includes(r))) {
+    return `👑 3-Card Royal Flush Draw! You have a chance at the royal flush (2 cards) or other strong hands. RTP: ${(bestHold.ev * 100).toFixed(1)}%`;
+  }
+}
+
+// High cards
+if (bestHold.hold.length <= 2 && bestHold.hold.length > 0) {
+  const heldRanks = bestHold.hold.map(i => ranks[i]);
+  const highCards = heldRanks.filter(r => ['J', 'Q', 'K', 'A'].includes(r));
+  
+  if (highCards.length > 0) {
+    if (game === "Double Double Bonus" && heldRanks.includes('A')) {
+      return `🎯 Hold the Ace(s)! In Double Double Bonus, Aces are especially valuable for bonus payouts. RTP: ${(bestHold.ev * 100).toFixed(1)}%`;
+    }
+    return `👑 Hold High Card(s): ${heldRanks.join(', ')}. These can form paying pairs (Jacks or Better). RTP: ${(bestHold.ev * 100).toFixed(1)}%`;
+  }
+  
+  // Low pair
+  const pairRank = heldRanks[0];
+  if (heldRanks.length === 2 && heldRanks[0] === heldRanks[1]) {
+    if (game === "Double Double Bonus") {
+      return `🎲 Low Pair (${pairRank}s) in Double Double Bonus. Low pairs can improve to trips or full house, and sometimes beat high card draws. RTP: ${(bestHold.ev * 100).toFixed(1)}%`;
+    }
+    return `🎲 Low Pair (${pairRank}s). While this doesn't pay now, it can improve to trips or better. RTP: ${(bestHold.ev * 100).toFixed(1)}%`;
+  }
+}
+
+// Draw 5
+if (bestHold.hold.length === 0) {
+  return `🎲 Draw 5 New Cards! No profitable holds found. This gives you a fresh chance at any hand. RTP: ${(bestHold.ev * 100).toFixed(1)}%`;
+}
+
+return `Hold ${bestHold.hold.length} cards with RTP: ${(bestHold.ev * 100).toFixed(1)}%`;
+}
+
+// Professional Career Statistics Modal Component
+function describeHold(cards: string[], hold: number[]): string {
+  if (hold.length === 0) return "Draw 5 new cards";
+  if (hold.length === 5) return "Keep all 5 cards";
+  const heldCards = hold.map(index => cards[index]);
+  return `Hold ${heldCards.join(', ')}`;
+}
+
+function getAllStrategyOptions(cards: string[], paytable: Record<string, number>): {hold: number[], ev: number, description: string}[] {
+  return enumerateHoldEvs(cards, paytable)
+    .slice(0, 4)
+    .map(option => ({
+      ...option,
+      description: describeHold(cards, option.hold)
+    }));
+}
+
+function calculateMistakeSeverity(
+  playerHold: number[],
+  optimalHold: {hold: number[], ev: number},
+  cards: string[],
+  paytable: Record<string, number>
+): {playerEV: number, optimalEV: number, difference: number, severity: string, color: string, severityDescription: string} {
+  let playerEV: number;
+  try {
+    playerEV = expectedValue(cards, playerHold, paytable);
+  } catch (error) {
+    playerEV = 0;
+  }
+
+  let optimalEV = optimalHold.ev;
+  if (optimalEV <= 0) {
+    try {
+      optimalEV = expectedValue(cards, optimalHold.hold, paytable);
+    } catch (error) {
+      optimalEV = 0;
+    }
+  }
+
+  const difference = optimalEV - playerEV;
+
+  let severity = "";
+  let color = "";
+  let severityDescription = "";
+
+  if (difference <= 0.05) {
+    severity = "Excellent";
+    color = "text-green-600";
+    severityDescription = "Perfect or near-perfect play! Your decision was optimal or very close to it.";
+  } else if (difference <= 0.2) {
+    severity = "Minor mistake";
+    color = "text-yellow-600";
+    severityDescription = "Small error with minimal impact. You chose a decent alternative but missed the optimal play.";
+  } else if (difference <= 0.5) {
+    severity = "Moderate mistake";
+    color = "text-orange-600";
+    severityDescription = "Noticeable error that hurts your returns. This decision significantly reduces your expected value.";
+  } else if (difference <= 1.0) {
+    severity = "Major mistake";
+    color = "text-red-600";
+    severityDescription = "Serious strategic error! This choice dramatically reduces your winning potential.";
+  } else {
+    severity = "Severe mistake";
+    color = "text-red-800";
+    severityDescription = "Critical blunder! This decision is mathematically very poor and severely hurts your odds.";
+  }
+  
+  return {
+    playerEV,
+    optimalEV,
+    difference,
+    severity,
+    color,
+    severityDescription
+  };
+}
+
+
+export default function App() {
+const [mode, setMode] = useState<"training" | "analysis">("training");
+const [theme, setTheme] = useState<"light" | "dark" | "casino">("light");
+const [cards, setCards] = useState<string[]>(() => getRandomHand());
+const [game, setGame] = useState(() => loadGameVariant());
+const [playerHold, setPlayerHold] = useState<number[]>([]);
+const [score, setScore] = useState({played:0, correct:0});
+const [history, setHistory] = useState<HistoryEntry[]>([]);
+const [showFullDeckPicker, setShowFullDeckPicker] = useState(false);
+const [tempSelectedCards, setTempSelectedCards] = useState<string[]>([]);
+const [showHandAnalysis, setShowHandAnalysis] = useState(false);
+const [careerStats, setCareerStats] = useState<CareerStats>(() => loadCareerStats());
+const [showCareerStats, setShowCareerStats] = useState(false);
+const [showCasino, setShowCasino] = useState(false);
+
+const paytable = PAYTABLES[game];
+
+// Enhanced Theme configurations with modern design
+const themes = {
+  light: {
+    bg: "bg-gradient-to-br from-slate-50 via-blue-50/80 to-indigo-100",
+    cardBg: "bg-white",
+    primaryBtn: "bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 hover:from-blue-700 hover:via-blue-800 hover:to-indigo-800 shadow-lg shadow-blue-500/25 hover:shadow-xl hover:shadow-blue-500/30",
+    secondaryBtn: "bg-gradient-to-r from-slate-600 via-gray-700 to-slate-800 hover:from-slate-700 hover:via-gray-800 hover:to-slate-900 shadow-lg shadow-slate-500/25",
+    successBtn: "bg-gradient-to-r from-emerald-600 via-green-700 to-teal-700 hover:from-emerald-700 hover:via-green-800 hover:to-teal-800 shadow-lg shadow-emerald-500/25",
+    dangerBtn: "bg-gradient-to-r from-red-600 via-rose-700 to-red-700 hover:from-red-700 hover:via-rose-800 hover:to-red-800 shadow-lg shadow-red-500/25",
+    panel: "bg-white/70 backdrop-blur-xl border border-white/50 shadow-2xl shadow-slate-200/60",
+    text: "text-slate-900",
+    textMuted: "text-slate-600",
+    border: "border-slate-200/80",
+    shadow: "shadow-2xl shadow-slate-200/40",
+    cardShadow: "shadow-2xl shadow-slate-300/40 hover:shadow-3xl hover:shadow-slate-400/50",
+    glassPanel: "bg-gradient-to-br from-white/90 via-white/70 to-white/90 backdrop-blur-2xl border border-white/40",
+  },
+  dark: {
+    bg: "bg-gradient-to-br from-slate-900 via-gray-900/95 to-black",
+    cardBg: "bg-white",
+    primaryBtn: "bg-gradient-to-r from-violet-600 via-purple-700 to-indigo-700 hover:from-violet-700 hover:via-purple-800 hover:to-indigo-800 shadow-lg shadow-violet-500/25 hover:shadow-xl hover:shadow-violet-500/30",
+    secondaryBtn: "bg-gradient-to-r from-slate-700 via-gray-800 to-slate-900 hover:from-slate-600 hover:via-gray-700 hover:to-slate-800 shadow-lg shadow-slate-500/25",
+    successBtn: "bg-gradient-to-r from-emerald-600 via-teal-700 to-cyan-700 hover:from-emerald-700 hover:via-teal-800 hover:to-cyan-800 shadow-lg shadow-emerald-500/25",
+    dangerBtn: "bg-gradient-to-r from-red-600 via-pink-700 to-rose-700 hover:from-red-700 hover:via-pink-800 hover:to-rose-800 shadow-lg shadow-red-500/25",
+    panel: "bg-slate-800/70 backdrop-blur-xl border border-slate-700/50 shadow-2xl shadow-black/60",
+    text: "text-slate-100",
+    textMuted: "text-slate-400",
+    border: "border-slate-700/80",
+    shadow: "shadow-2xl shadow-black/40",
+    cardShadow: "shadow-2xl shadow-black/60 hover:shadow-3xl hover:shadow-black/80",
+    glassPanel: "bg-gradient-to-br from-slate-800/90 via-slate-900/70 to-slate-800/90 backdrop-blur-2xl border border-slate-700/40",
+  },
+  casino: {
+    bg: "bg-gradient-to-br from-emerald-900 via-green-900/95 to-teal-900",
+    cardBg: "bg-white",
+    primaryBtn: "bg-gradient-to-r from-amber-500 via-yellow-600 to-orange-600 hover:from-amber-600 hover:via-yellow-700 hover:to-orange-700 shadow-lg shadow-amber-500/30 hover:shadow-xl hover:shadow-amber-500/40",
+    secondaryBtn: "bg-gradient-to-r from-emerald-700 via-green-800 to-teal-800 hover:from-emerald-600 hover:via-green-700 hover:to-teal-700 shadow-lg shadow-emerald-500/25",
+    successBtn: "bg-gradient-to-r from-lime-500 via-emerald-600 to-green-600 hover:from-lime-600 hover:via-emerald-700 hover:to-green-700 shadow-lg shadow-lime-500/25",
+    dangerBtn: "bg-gradient-to-r from-red-600 via-rose-700 to-red-700 hover:from-red-700 hover:via-rose-800 hover:to-red-800 shadow-lg shadow-red-500/25",
+    panel: "bg-emerald-800/30 backdrop-blur-xl border border-emerald-600/40 shadow-2xl shadow-emerald-900/60",
+    text: "text-emerald-50",
+    textMuted: "text-emerald-200",
+    border: "border-emerald-600/60",
+    shadow: "shadow-2xl shadow-emerald-900/50",
+    cardShadow: "shadow-2xl shadow-emerald-900/50 hover:shadow-3xl hover:shadow-emerald-900/70",
+    glassPanel: "bg-gradient-to-br from-emerald-800/50 via-green-900/40 to-emerald-800/50 backdrop-blur-2xl border border-emerald-600/30",
+  }
+};
+
+const currentTheme = themes[theme];
+
+function dealRandom() {
+setCards(getRandomHand());
+setPlayerHold([]);
+setShowHandAnalysis(false); // Hide analysis for new hand
+}
+
+const best = useMemo(() => {
+try {
+return getOptimalHoldForGame(cards, paytable, game);
+} catch (error) {
+return { hold: [], ev: 0 };
+}
+}, [cards, paytable, game]);
+
+
+function toggleHold(i:number) {
+if(playerHold.includes(i)) setPlayerHold(ph => ph.filter(x=>x!==i));
+else setPlayerHold(ph => [...ph,i]);
+}
+
+function submitHold() {
+try {
+// Check if player's hold matches the optimal hold
+const playerSorted = playerHold.slice().sort();
+const bestSorted = best.hold.slice().sort();
+const correct = playerSorted.length === bestSorted.length && 
+               playerSorted.every((x, i) => x === bestSorted[i]);
+
+// Calculate mistake cost for career stats
+let mistakeCost = 0;
+let severity = "Excellent";
+if (!correct) {
+  const mistake = calculateMistakeSeverity(playerHold, best, cards, paytable);
+  mistakeCost = mistake.difference; // Already in decimal form (0.01 = 1%)
+  severity = mistake.severity;
+}
+
+setScore(s => ({played: s.played+1, correct: s.correct + (correct?1:0)}));
+setHistory(h => [{
+  cards,
+  playerHold,
+  bestHold: best.hold.slice(),
+  correct,
+  gameVariant: game,
+  optimalHold: best.hold.slice(),
+  optimalEv: best.ev
+}, ...h.slice(0, 9)]);
+
+// Update and save career stats
+const updatedStats = updateCareerStats(careerStats, correct, game, mistakeCost, severity);
+setCareerStats(updatedStats);
+saveCareerStats(updatedStats);
+
+setShowHandAnalysis(false); // Hide analysis for new hand
+dealRandom();
+} catch (error) {
+// Handle error silently
+}
+}
+
+function resetCareerStats() {
+const confirmReset = window.confirm(
+  "⚠️ Are you sure you want to reset all career statistics?\n\n" +
+  "This will permanently delete:\n" +
+  "• All game history\n" +
+  "• Accuracy records\n" +
+  "• Best streaks\n" +
+  "• Performance data\n\n" +
+  "This action cannot be undone!"
+);
+
+if (confirmReset) {
+  const newStats = getDefaultCareerStats();
+  setCareerStats(newStats);
+  saveCareerStats(newStats);
+  setShowCareerStats(false);
+}
+}
+
+function handleGameChange(newGame: string) {
+setGame(newGame);
+saveGameVariant(newGame);
+}
+
+return (
+<div className={`min-h-screen p-4 sm:p-6 lg:p-8 transition-all duration-500 ${currentTheme.bg}`}>
+<div className="max-w-7xl mx-auto">
+{/* Header with Theme Toggle */}
+<div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-8">
+<motion.div 
+  initial={{opacity:0,y:-20}} 
+  animate={{opacity:1,y:0}} 
+  transition={{duration:0.8, ease:"easeOut"}}
+  className="text-center mb-2"
+>
+  <h1 className={`text-6xl font-extrabold bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent mb-2 tracking-tight`}>
+    🎰 What Should I Hold?
+  </h1>
+  <p className={`text-lg font-medium ${currentTheme.textMuted} tracking-wide`}>
+    Professional Video Poker Strategy Trainer
+  </p>
+</motion.div>
+
+{/* Career Stats & Theme Selector */}
+<div className="flex flex-wrap gap-2 sm:gap-3 justify-center sm:justify-end items-center">
+<motion.button
+  onClick={() => setShowCareerStats(true)}
+  whileHover={{ scale: 1.05 }}
+  whileTap={{ scale: 0.95 }}
+  className={`px-4 py-2 rounded-xl font-semibold text-sm transition-all duration-300 ${currentTheme.glassPanel} ${currentTheme.text} hover:shadow-md border border-slate-200/30`}
+>
+  <span className="text-lg mr-2">📊</span>
+  Career Stats
+</motion.button>
+<motion.button
+  onClick={() => setShowCasino(true)}
+  whileHover={{ scale: 1.05 }}
+  whileTap={{ scale: 0.95 }}
+  className="px-4 py-2 rounded-xl font-semibold text-sm bg-gradient-to-r from-red-600 via-yellow-600 to-red-600 text-white shadow-lg hover:shadow-xl border-2 border-yellow-400 animate-pulse"
+>
+  <span className="text-lg mr-2">🎰</span>
+  Casino Play
+</motion.button>
+{(["light", "dark"] as const).map(themeOption => (
+<motion.button
+  key={themeOption}
+  onClick={() => setTheme(themeOption)}
+  whileHover={{ scale: 1.05 }}
+  whileTap={{ scale: 0.95 }}
+  className={`px-3 sm:px-4 py-2 sm:py-3 text-sm sm:text-base rounded-xl font-semibold transition-all duration-300 ${
+    theme === themeOption
+      ? themeOption === "light" ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg ring-2 ring-blue-400/50" :
+        "bg-gradient-to-r from-purple-600 to-violet-600 text-white shadow-lg ring-2 ring-purple-400/50"
+      : `${currentTheme.glassPanel} ${currentTheme.text} hover:shadow-md border border-slate-200/30`
+  }`}
+>
+  <span className="text-lg mr-2">
+    {themeOption === "light" ? "☀️" : "🌙"}
+  </span>
+  {themeOption === "light" ? "Light" : "Dark"}
+</motion.button>
+))}
+</div>
+</div>
+
+{/* Mode Toggle */}
+<div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-8 w-full sm:w-auto">
+<motion.button 
+  onClick={() => setMode("training")}
+  whileHover={{ scale: 1.05, y: -2 }}
+  whileTap={{ scale: 0.95 }}
+  className={`w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 text-sm sm:text-base rounded-2xl font-bold transition-all duration-300 ${
+    mode === "training" 
+      ? `${currentTheme.primaryBtn} text-white ${currentTheme.shadow} ring-2 ring-blue-400/50` 
+      : `${currentTheme.glassPanel} ${currentTheme.text} hover:shadow-lg border border-slate-200/50`
+  }`}
+>
+  <span className="text-2xl mr-2">🎯</span>
+  Training Mode
+</motion.button>
+<motion.button 
+  onClick={() => setMode("analysis")}
+  whileHover={{ scale: 1.05, y: -2 }}
+  whileTap={{ scale: 0.95 }}
+  className={`w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 text-sm sm:text-base rounded-2xl font-bold transition-all duration-300 ${
+    mode === "analysis" 
+      ? `${currentTheme.successBtn} text-white ${currentTheme.shadow} ring-2 ring-emerald-400/50` 
+      : `${currentTheme.glassPanel} ${currentTheme.text} hover:shadow-lg border border-slate-200/50`
+  }`}
+>
+  <span className="text-2xl mr-2">🔍</span>
+  Hand Analysis
+</motion.button>
+</div>
+
+{mode === "training" ? (
+<div>
+{/* Training Mode Content */}
+
+
+<div className={`${currentTheme.glassPanel} rounded-2xl p-8 mb-8 ${currentTheme.shadow}`}>
+<label className={`mr-3 font-bold text-lg ${currentTheme.text}`}>Game Variant:</label>
+<select value={game} onChange={e=>handleGameChange(e.target.value)} className={`${currentTheme.panel} ${currentTheme.text} border rounded-lg px-4 py-2 font-medium ${currentTheme.border}`}>
+{Object.keys(PAYTABLES).map(g => <option key={g} value={g}>{g}</option>)}
+</select>
+</div>
+
+<div className={`${currentTheme.glassPanel} rounded-2xl p-6 mb-8 ${currentTheme.shadow}`}>
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    {/* Current Session */}
+    <div>
+      <div className={`text-xl font-bold ${currentTheme.text} mb-2`}>🎮 Current Session</div>
+      <div className={`text-2xl font-bold ${score.played > 0 && score.correct/score.played >= 0.8 ? 'text-green-600' : score.played > 0 && score.correct/score.played >= 0.6 ? 'text-yellow-600' : 'text-slate-600'}`}>
+        {score.correct}/{score.played} ({score.played > 0 ? Math.round((score.correct/score.played)*100) : 0}%)
+      </div>
+      <div className={`text-sm ${currentTheme.textMuted} font-medium`}>
+        Streak: {careerStats.currentStreak}
+      </div>
+    </div>
+
+    {/* Career Overview - Game Specific */}
+    <div>
+      <div className={`text-xl font-bold ${currentTheme.text} mb-2`}>🏆 {game} Career</div>
+      <div className={`text-2xl font-bold ${(() => {
+        const gameStats = careerStats.handsPerGame[game] || { played: 0, correct: 0 };
+        const accuracy = gameStats.played > 0 ? gameStats.correct/gameStats.played : 0;
+        return accuracy >= 0.8 ? 'text-green-600' : accuracy >= 0.6 ? 'text-yellow-600' : 'text-slate-600';
+      })()}`}>
+        {(() => {
+          const gameStats = careerStats.handsPerGame[game] || { played: 0, correct: 0 };
+          const accuracy = gameStats.played > 0 ? ((gameStats.correct/gameStats.played)*100).toFixed(1) : 0;
+          return `${gameStats.correct.toLocaleString()}/${gameStats.played.toLocaleString()} (${accuracy}%)`;
+        })()}
+      </div>
+      <div className={`text-sm ${currentTheme.textMuted} font-medium`}>
+        Best: {careerStats.bestStreak} • Mistakes: {careerStats.mistakesByGame[game] || 0}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div className="flex justify-center gap-5 mb-6">
+{cards.map((c,i) => {
+const cardRank = rank(c);
+const cardSuit = suit(c);
+const colorClass = getCardColor(cardSuit);
+return (
+<div key={i} className="flex flex-col items-center gap-2">
+<div className="text-sm text-gray-500">Card {i+1}</div>
+<button onClick={()=>toggleHold(i)} className={`relative w-16 h-24 rounded-xl border-2 ${currentTheme.cardBg} ${currentTheme.shadow} transition-all duration-300 hover:shadow-2xl hover:scale-105 ${playerHold.includes(i)?"border-green-500 bg-green-100":"border-gray-300 hover:border-blue-400"}`}>
+<div className={`flex flex-col items-center justify-center h-full ${colorClass}`}>
+<div className="text-lg font-bold">{cardRank}</div>
+<div className="text-xl">{cardSuit}</div>
+</div>
+{playerHold.includes(i) && (
+<div className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 bg-green-600 text-white text-xs px-2 py-1 rounded font-bold">
+HOLD
+</div>
+)}
+</button>
+</div>
+);
+})}
+</div>
+
+<div className="flex justify-center gap-4 mb-8">
+<button onClick={dealRandom} className={`px-6 py-3 rounded-xl text-white font-bold transition-all duration-300 hover:scale-105 ${currentTheme.secondaryBtn} ${currentTheme.shadow}`}>🎲 Deal Random</button>
+<button onClick={submitHold} className={`px-6 py-3 rounded-xl text-white font-bold hover:scale-105 ${currentTheme.primaryBtn} ${currentTheme.shadow}`}>✅ Submit Hold</button>
+</div>
+
+{/* Hand Analysis Button - Fixed to Right Side */}
+<div className="fixed right-4 top-1/2 transform -translate-y-1/2 z-50">
+  <motion.button
+    onClick={() => setShowHandAnalysis(!showHandAnalysis)}
+    whileHover={{ scale: 1.05 }}
+    whileTap={{ scale: 0.95 }}
+    className={`${currentTheme.glassPanel} ${currentTheme.shadow} rounded-xl p-3 transition-all duration-300 hover:shadow-xl ${currentTheme.text}`}
+    title={showHandAnalysis ? 'Hide Analysis' : 'Show Analysis'}
+  >
+    <div className="flex flex-col items-center gap-1">
+      <span className="text-2xl">💡</span>
+      <span className="text-xs font-semibold">Analysis</span>
+      <motion.div
+        animate={{ rotate: showHandAnalysis ? 180 : 0 }}
+        transition={{ duration: 0.3 }}
+        className={`text-sm ${currentTheme.textMuted}`}
+      >
+        {showHandAnalysis ? '→' : '←'}
+      </motion.div>
+    </div>
+  </motion.button>
+</div>
+
+{/* Hand Analysis Panel - Slides in from Right */}
+{showHandAnalysis && (
+  <motion.div
+    initial={{ x: '100%', opacity: 0 }}
+    animate={{ x: 0, opacity: 1 }}
+    exit={{ x: '100%', opacity: 0 }}
+    transition={{ duration: 0.3, ease: 'easeInOut' }}
+    className="fixed right-20 top-1/2 transform -translate-y-1/2 z-40 w-96 max-h-[80vh] overflow-y-auto"
+  >
+    <div className={`${currentTheme.panel} rounded-2xl ${currentTheme.shadow} ${currentTheme.border} border p-6`}>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xl font-bold flex items-center gap-2">
+          <span className="text-2xl">💡</span>
+          Current Hand Analysis
+        </h3>
+        <button
+          onClick={() => setShowHandAnalysis(false)}
+          className={`${currentTheme.textMuted} hover:${currentTheme.text} transition-colors`}
+        >
+          ✕
+        </button>
+      </div>
+
+      {/* Strategy Options Comparison */}
+      {(() => {
+        const allOptions = getAllStrategyOptions(cards, paytable);
+        const optimalOption = allOptions[0];
+        return (
+          <div className="space-y-3">
+            {/* Optimal Choice */}
+            <div className="bg-green-100 border border-green-300 rounded-lg p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-bold text-green-800">🏆 OPTIMAL CHOICE</span>
+                <span className="text-green-700 font-medium">RTP: {(optimalOption.ev * 100).toFixed(1)}%</span>
+              </div>
+              <div className="text-green-700">
+                <div className="mb-1">
+                  <strong>Hold:</strong> {optimalOption.hold.length > 0 ? optimalOption.hold.map(i => cards[i]).join(", ") : "None (Draw 5)"}
+                </div>
+                <div className="text-sm">
+                  <strong>Why:</strong> {getStrategyExplanation(cards, best, game)}
+                </div>
+              </div>
+            </div>
+
+            {/* Alternative Options */}
+            {allOptions.slice(1, 3).map((option, idx) => {
+              const difference = optimalOption.ev - option.ev;
+              let severityColor = difference <= 0.1 ? "yellow" : difference <= 0.5 ? "orange" : "red";
+              return (
+                <div key={idx} className={`bg-${severityColor}-50 border border-${severityColor}-200 rounded-lg p-3`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className={`font-medium text-${severityColor}-800`}>#{idx + 2} Alternative</span>
+                    <div className="text-right text-sm">
+                      <div className={`text-${severityColor}-700 font-medium`}>RTP: {(option.ev * 100).toFixed(1)}%</div>
+                      <div className={`text-${severityColor}-600 text-xs`}>Cost: -{(difference * 100).toFixed(1)}%</div>
+                    </div>
+                  </div>
+                  <div className={`text-${severityColor}-700 text-sm`}>
+                    <strong>Hold:</strong> {option.hold.length > 0 ? option.hold.map(i => cards[i]).join(", ") : "None"} - {option.description}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+    </div>
+  </motion.div>
+)}
+
+<div className={`${currentTheme.glassPanel} rounded-3xl ${currentTheme.shadow} p-8`}>
+<div className={`text-xl font-bold mb-4 ${currentTheme.text}`}>🎯 Recent Hands</div>
+{history.length === 0 && <div className={`${currentTheme.textMuted} text-sm`}>No hands yet.</div>}
+<HistoryList
+  history={history}
+  currentTheme={currentTheme}
+  fallbackPaytable={paytable}
+  defaultGame={game}
+  calculateMistakeSeverity={calculateMistakeSeverity}
+  getPlayerStrategyExplanation={getPlayerStrategyExplanation}
+  getStrategyExplanation={getStrategyExplanation}
+/>
+</div>
+</div>
+) : (
+<div>
+{/* Analysis Mode Content */}
+<div className="mb-6">
+<label className="mr-2 font-semibold">Game:</label>
+<select value={game} onChange={e=>handleGameChange(e.target.value)} className="border rounded px-2 py-1">
+{Object.keys(PAYTABLES).map(g => <option key={g} value={g}>{g}</option>)}
+</select>
+</div>
+
+<div className="bg-white rounded-2xl shadow p-6 mb-6">
+<h3 className="text-xl font-bold mb-4">🔍 Current Hand Analysis</h3>
+<div className="flex justify-center gap-5 mb-6">
+{cards.map((card, i) => {
+const cardRank = rank(card);
+const cardSuit = suit(card);
+const colorClass = getCardColor(cardSuit);
+const isOptimal = best.hold.includes(i);
+return (
+<div key={i} className="flex flex-col items-center gap-2">
+<div className="text-sm text-gray-500 font-medium">Card {i+1}</div>
+<div className={`relative w-16 h-24 rounded-lg border-2 bg-white shadow-lg ${
+  isOptimal ? "border-green-500 bg-green-50" : "border-gray-300"
+}`}>
+<div className={`flex flex-col items-center justify-center h-full ${colorClass}`}>
+<div className="text-lg font-bold">{cardRank}</div>
+<div className="text-xl">{cardSuit}</div>
+</div>
+{isOptimal && (
+<div className="absolute -bottom-2 left-1/2 transform -translate-x-1/2 bg-green-600 text-white text-xs px-2 py-1 rounded font-bold">
+OPTIMAL
+</div>
+)}
+</div>
+</div>
+);
+})}
+</div>
+
+<button 
+  onClick={() => {
+    setTempSelectedCards([]);
+    setShowFullDeckPicker(true);
+  }}
+  className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 mb-4"
+>
+🃏 Select New Hand from Full Deck
+</button>
+
+<button 
+  onClick={() => {
+    const deck = makeDeck();
+    const shuffled = [...deck];
+    for(let i = shuffled.length-1; i > 0; i--){ 
+      const j = Math.floor(Math.random() * (i+1)); 
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]; 
+    }
+    setCards(shuffled.slice(0,5));
+  }} 
+  className="w-full px-4 py-2 rounded-lg bg-gray-600 text-white hover:bg-gray-700 mb-4"
+>
+  🎲 Generate Random Hand
+</button>
+</div>
+
+{/* Full Deck Picker Component */}
+<FullDeckPicker
+  isOpen={showFullDeckPicker}
+  onClose={() => setShowFullDeckPicker(false)}
+  onSelectCards={(newCards) => {
+    setCards(newCards);
+    setPlayerHold([]);
+  }}
+  selectedCards={tempSelectedCards}
+  setSelectedCards={setTempSelectedCards}
+  getCardColor={getCardColor}
+/>
+
+
+
+
+{/* Analysis Results */}
+<motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} className="bg-white rounded-2xl shadow p-6">
+<h3 className="text-xl font-bold mb-4">📊 Strategy Analysis</h3>
+
+{/* Current Hand Display */}
+<div className="mb-6">
+<h4 className="font-semibold mb-3">Your Hand:</h4>
+<div className="flex gap-2 justify-center mb-4">
+{cards.map((c,i) => {
+const cardRank = rank(c);
+const cardSuit = suit(c);
+const colorClass = getCardColor(cardSuit);
+const isHeld = best.hold.includes(i);
+return (
+<div key={i} className={`relative w-14 h-20 rounded-lg border-2 bg-white shadow-md ${isHeld ? "border-green-500 bg-green-50" : "border-gray-300"}`}>
+<div className={`flex flex-col items-center justify-center h-full ${colorClass}`}>
+<div className="text-base font-bold">{cardRank}</div>
+<div className="text-lg">{cardSuit}</div>
+</div>
+{isHeld && (
+<div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 bg-green-600 text-white text-xs px-1 py-0.5 rounded font-bold">
+HOLD
+</div>
+)}
+</div>
+);
+})}
+</div>
+</div>
+
+{/* Strategy Options Comparison */}
+<div className="bg-blue-50 rounded-lg p-4 mb-4">
+<h4 className="font-semibold text-blue-800 mb-3">💡 Strategy Analysis & Options</h4>
+{(() => {
+const allOptions = getAllStrategyOptions(cards, paytable);
+const optimalOption = allOptions[0];
+return (
+<div className="space-y-3">
+{/* Optimal Choice */}
+<div className="bg-green-100 border border-green-300 rounded-lg p-3">
+<div className="flex items-center justify-between mb-2">
+<span className="font-bold text-green-800">🏆 OPTIMAL CHOICE</span>
+<span className="text-green-700 font-medium">RTP: {(optimalOption.ev * 100).toFixed(1)}%</span>
+</div>
+<div className="text-green-700">
+<div className="mb-1">
+<strong>Hold:</strong> {optimalOption.hold.length > 0 ? optimalOption.hold.map(i => cards[i]).join(", ") : "None (Draw 5)"}
+</div>
+<div className="text-sm">
+<strong>Why:</strong> {getStrategyExplanation(cards, best, game)}
+</div>
+</div>
+</div>
+
+{/* Alternative Options */}
+{allOptions.slice(1, 3).map((option, idx) => {
+const difference = optimalOption.ev - option.ev;
+let severityColor = difference <= 0.1 ? "yellow" : difference <= 0.5 ? "orange" : "red";
+return (
+<div key={idx} className={`bg-${severityColor}-50 border border-${severityColor}-200 rounded-lg p-3`}>
+<div className="flex items-center justify-between mb-2">
+<span className={`font-medium text-${severityColor}-800`}>#{idx + 2} Alternative</span>
+<div className="text-right text-sm">
+<div className={`text-${severityColor}-700 font-medium`}>RTP: {(option.ev * 100).toFixed(1)}%</div>
+<div className={`text-${severityColor}-600 text-xs`}>Cost: -{(difference * 100).toFixed(1)}%</div>
+</div>
+</div>
+<div className={`text-${severityColor}-700 text-sm`}>
+<strong>Hold:</strong> {option.hold.length > 0 ? option.hold.map(i => cards[i]).join(", ") : "None"} - {option.description}
+</div>
+</div>
+);
+})}
+
+{/* Detailed Strategic Reasoning */}
+<div className="bg-gray-50 rounded-lg p-3 mt-3">
+<h5 className="font-semibold text-gray-800 mb-2">📋 Strategic Reasoning:</h5>
+<div className="text-sm text-gray-700 space-y-1">
+{(() => {
+  const currentHand = evaluateHand(cards, paytable);
+  const ranks = cards.map(rank);
+  const suits = cards.map(suit);
+  
+  if (currentHand.payout > 0) {
+    return (
+      <div>
+        <div>• <strong>Current Hand:</strong> {currentHand.name} (pays {currentHand.payout}x)</div>
+        <div>• <strong>Decision:</strong> Hold paying hand - guaranteed return beats any draw</div>
+        <div>• <strong>Risk:</strong> Zero risk vs. uncertain improvement from draws</div>
+      </div>
+    );
+  }
+  
+  // Check for draws
+  const suitCounts: {[key: string]: number} = {};
+  suits.forEach(s => suitCounts[s] = (suitCounts[s] || 0) + 1);
+  const flushDraw = Object.values(suitCounts).some(count => count === 4);
+  
+  const pairs: number[] = [];
+  const rankCounts: {[key: string]: number[]} = {};
+  ranks.forEach((r, i) => {
+    if (!rankCounts[r]) rankCounts[r] = [];
+    rankCounts[r].push(i);
+  });
+  
+  for (const positions of Object.values(rankCounts)) {
+    if (positions.length === 2) {
+      pairs.push(...positions);
+      break;
+    }
+  }
+  
+  const highCards = [0,1,2,3,4].filter(i => ['J', 'Q', 'K', 'A'].includes(ranks[i]));
+  
+  if (flushDraw) {
+    return (
+      <div>
+        <div>• <strong>4-Card Flush Draw:</strong> 9 cards complete flush (19% chance)</div>
+        <div>• <strong>Why Better:</strong> Flush pays {paytable.FLUSH}x, much higher than pair attempts</div>
+        <div>• <strong>Math:</strong> 9/47 × {paytable.FLUSH} = {((9/47 * paytable.FLUSH) * 100).toFixed(1)}% RTP vs {((1/47) * 100).toFixed(1)}% for random pair</div>
+      </div>
+    );
+  } else if (pairs.length === 2) {
+    const pairRank = ranks[pairs[0]];
+    const isHighPair = ['J', 'Q', 'K', 'A'].includes(pairRank);
+    return (
+      <div>
+        <div>• <strong>Pair Strategy:</strong> {pairRank} pair {isHighPair ? "(high)" : "(low)"}</div>
+        <div>• <strong>Improvement Odds:</strong> ~11% for trips, ~16% for two pair or better</div>
+        <div>• <strong>Why Hold:</strong> {isHighPair ? "Immediate 1x payout + improvement potential" : "No immediate payout but 27% improvement chance"}</div>
+      </div>
+    );
+  } else if (highCards.length > 0) {
+    return (
+      <div>
+        <div>• <strong>High Cards:</strong> {highCards.map(i => ranks[i]).join(", ")} give pair potential</div>
+        <div>• <strong>Pair Odds:</strong> ~13% chance per high card to pair up</div>
+        <div>• <strong>Strategy:</strong> {game.includes("Double") ? "In bonus games, Aces are especially valuable for jackpot potential" : "Any J+ pair pays 1-for-1"}</div>
+      </div>
+    );
+  } else {
+    return (
+      <div>
+        <div>• <strong>No Draws Found:</strong> Hand has no profitable holding patterns</div>
+        <div>• <strong>Best Option:</strong> Draw 5 fresh cards for maximum potential</div>
+        <div>• <strong>RTP:</strong> ~30% return from random 5-card hands</div>
+      </div>
+    );
+  }
+})()}
+</div>
+</div>
+</div>
+);
+})()}
+</div>
+
+{/* Interactive Hold Testing */}
+<div className="bg-yellow-50 rounded-lg p-4 mb-4">
+<h4 className="font-semibold text-yellow-800 mb-3">🧪 Test Your Hold vs Optimal</h4>
+<div className="mb-3">
+<p className="text-sm text-yellow-700 mb-2">Click cards below to test different hold strategies:</p>
+<div className="flex gap-2 flex-wrap justify-center">
+{cards.map((c, i) => {
+const cardRank = rank(c);
+const cardSuit = suit(c);
+const colorClass = getCardColor(cardSuit);
+const isHeld = playerHold.includes(i);
+return (
+<button
+  key={i}
+  onClick={() => {
+    if (isHeld) {
+      setPlayerHold(ph => ph.filter(x => x !== i));
+    } else {
+      setPlayerHold(ph => [...ph, i]);
+    }
+  }}
+  className={`w-12 h-16 rounded border-2 transition-all text-xs ${
+    isHeld 
+      ? "border-purple-500 bg-purple-50" 
+      : "border-gray-300 bg-white hover:border-purple-300"
+  }`}
+>
+<div className={`${colorClass}`}>
+<div className="font-bold">{cardRank}</div>
+<div>{cardSuit}</div>
+</div>
+{isHeld && <div className="text-purple-600 text-xs font-bold">HOLD</div>}
+</button>
+);
+})}
+</div>
+<button 
+  onClick={() => setPlayerHold([])}
+  className="mt-2 px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600"
+>
+Clear Holds
+</button>
+</div>
+
+{/* Comparison Results */}
+{playerHold.length > 0 && (
+<div className="border-t pt-3">
+{(() => {
+const comparison = calculateMistakeSeverity(playerHold, best, cards, paytable);
+return (
+<div className="grid grid-cols-2 gap-4 text-sm">
+<div className="space-y-1">
+<div><strong>Your Hold:</strong> {playerHold.map(i => cards[i]).join(", ")}</div>
+<div><strong>Your RTP:</strong> {(comparison.playerEV * 100).toFixed(1)}%</div>
+</div>
+<div className="space-y-1">
+<div><strong>Optimal Hold:</strong> {best.hold.map(i => cards[i]).join(", ")}</div>
+<div><strong>Optimal RTP:</strong> {(comparison.optimalEV * 100).toFixed(1)}%</div>
+</div>
+<div className="col-span-2 pt-2 border-t">
+<div className={`text-center font-bold ${comparison.color}`}>
+{comparison.difference <= 0.05 ? 
+  "🎉 Excellent choice!" :
+  `⚠️  ${comparison.severity}: -${(comparison.difference * 100).toFixed(1)}% RTP loss`
+}
+</div>
+</div>
+</div>
+);
+})()}
+</div>
+)}
+</div>
+
+{/* Hand Information */}
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+<div className="bg-gray-50 rounded-lg p-4">
+<h4 className="font-semibold mb-2">📋 Hand Details</h4>
+<div className="space-y-1 text-sm">
+<div><strong>Current Hand:</strong> {evaluateHand(cards, paytable).name}</div>
+<div><strong>Current Payout:</strong> {evaluateHand(cards, paytable).payout}x</div>
+<div><strong>Cards to Hold:</strong> {best.hold.length} cards</div>
+<div><strong>RTP:</strong> {(best.ev * 100).toFixed(1)}%</div>
+</div>
+</div>
+
+<div className="bg-gray-50 rounded-lg p-4">
+<h4 className="font-semibold mb-2">🎮 Game Info</h4>
+<div className="space-y-1 text-sm">
+<div><strong>Variant:</strong> {game}</div>
+<div><strong>Royal Flush:</strong> {paytable.ROYAL}x</div>
+<div><strong>Full House:</strong> {paytable.FULL_HOUSE}x</div>
+<div><strong>Flush:</strong> {paytable.FLUSH}x</div>
+</div>
+</div>
+</div>
+</motion.div>
+</div>
+)}
+</div>
+
+{/* Career Stats Modal - Rendered outside of mode conditions */}
+<CareerStatsModal
+  isOpen={showCareerStats}
+  onClose={() => setShowCareerStats(false)}
+  stats={careerStats}
+  onReset={resetCareerStats}
+  theme={theme}
+  currentGame={game}
+  onGameChange={handleGameChange}
+/>
+
+{/* Casino Mode - Full Screen Video Poker Machine */}
+<CasinoMode
+  isOpen={showCasino}
+  onClose={() => setShowCasino(false)}
+  game={game}
+/>
+</div>
+);
+}

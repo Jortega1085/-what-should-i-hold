@@ -1,22 +1,28 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 
 import { PAYTABLES } from "./data/paytables";
 import {
+  RANK_ORDER,
   rank,
   suit,
   makeDeck,
   getRandomHand,
+  expectedValue,
+  evaluateHand,
   enumerateHoldEvs,
   getOptimalHoldForGame
 } from "./logic/solver";
-import { HistoryEntry } from "./types";
-import { CareerStats } from "./types";
+import { HistoryEntry } from "./types/history";
+import { CareerStats } from "./types/stats";
 import { CareerStatsModal } from "./components/CareerStatsModal";
 import { FullDeckPicker } from "./components/FullDeckPicker";
+import { HistoryList } from "./components/HistoryList";
 import { CasinoMode } from "./components/CasinoMode";
 import { TrainingMode } from "./components/TrainingMode";
+import { HandAnalysisSidebar } from "./components/HandAnalysisSidebar";
 import { StrategyDisplay } from "./components/StrategyDisplay";
+import { themes, ThemeName } from "./config/themes";
 import {
   getDefaultCareerStats,
   loadCareerStats,
@@ -332,20 +338,12 @@ setPlayerHold([]);
 setShowHandAnalysis(false); // Hide analysis for new hand
 }
 
-const [best, setBest] = useState<{hold: number[], ev: number}>({ hold: [], ev: 0 });
-
-// Calculate best move asynchronously after cards change
-useEffect(() => {
-  // Always defer the expensive calculation to avoid blocking
-  const timeoutId = setTimeout(() => {
-    try {
-      const optimalHold = getOptimalHoldForGame(cards, paytable, game);
-      setBest(optimalHold);
-    } catch (error) {
-      setBest({ hold: [], ev: 0 });
-    }
-  }, 0);
-  return () => clearTimeout(timeoutId);
+const best = useMemo(() => {
+try {
+return getOptimalHoldForGame(cards, paytable, game);
+} catch (error) {
+return { hold: [], ev: 0 };
+}
 }, [cards, paytable, game]);
 
 
@@ -356,49 +354,39 @@ else setPlayerHold(ph => [...ph,i]);
 
 function submitHold() {
 try {
-// Store current cards and hold for async processing
-const submittedCards = [...cards];
-const submittedPlayerHold = [...playerHold];
-const submittedBest = {...best};
-
 // Check if player's hold matches the optimal hold
-const playerSorted = submittedPlayerHold.slice().sort();
-const bestSorted = submittedBest.hold.slice().sort();
-const correct = playerSorted.length === bestSorted.length &&
+const playerSorted = playerHold.slice().sort();
+const bestSorted = best.hold.slice().sort();
+const correct = playerSorted.length === bestSorted.length && 
                playerSorted.every((x, i) => x === bestSorted[i]);
 
-// Update score and history immediately for better responsiveness
+// Calculate mistake cost for career stats
+let mistakeCost = 0;
+let severity = "Excellent";
+if (!correct) {
+  const mistake = calculateMistakeSeverity(playerHold, best, cards, paytable);
+  mistakeCost = mistake.difference; // Already in decimal form (0.01 = 1%)
+  severity = mistake.severity;
+}
+
 setScore(s => ({played: s.played+1, correct: s.correct + (correct?1:0)}));
 setHistory(h => [{
-  cards: submittedCards,
-  playerHold: submittedPlayerHold,
-  bestHold: submittedBest.hold.slice(),
+  cards,
+  playerHold,
+  bestHold: best.hold.slice(),
   correct,
   gameVariant: game,
-  optimalHold: submittedBest.hold.slice(),
-  optimalEv: submittedBest.ev
+  optimalHold: best.hold.slice(),
+  optimalEv: best.ev
 }, ...h.slice(0, 9)]);
 
-// Deal new hand immediately for better UX
-setShowHandAnalysis(false);
+// Update and save career stats
+const updatedStats = updateCareerStats(careerStats, correct, game, mistakeCost, severity);
+setCareerStats(updatedStats);
+saveCareerStats(updatedStats);
+
+setShowHandAnalysis(false); // Hide analysis for new hand
 dealRandom();
-
-// Calculate mistake severity and update stats asynchronously to avoid blocking UI
-setTimeout(() => {
-  let mistakeCost = 0;
-  let severity = "Excellent";
-  if (!correct) {
-    const mistake = calculateMistakeSeverity(submittedPlayerHold, submittedBest, submittedCards, paytable);
-    mistakeCost = mistake.difference;
-    severity = mistake.severity;
-  }
-
-  // Update career stats in the background
-  const updatedStats = updateCareerStats(careerStats, correct, game, mistakeCost, severity);
-  setCareerStats(updatedStats);
-  saveCareerStats(updatedStats);
-}, 0);
-
 } catch (error) {
 // Handle error silently
 }
@@ -633,6 +621,224 @@ OPTIMAL
   getStrategyExplanation={getStrategyExplanation}
   getCardColor={getCardColor}
 />
+</div>
+)}
+{/* Optimal Choice */}
+<div className="bg-green-100 border border-green-300 rounded-lg p-3">
+<div className="flex items-center justify-between mb-2">
+<span className="font-bold text-green-800">🏆 OPTIMAL CHOICE</span>
+<span className="text-green-700 font-medium">RTP: {(optimalOption.ev * 100).toFixed(1)}%</span>
+</div>
+<div className="text-green-700">
+<div className="mb-1">
+<strong>Hold:</strong> {optimalOption.hold.length > 0 ? optimalOption.hold.map(i => cards[i]).join(", ") : "None (Draw 5)"}
+</div>
+<div className="text-sm">
+<strong>Why:</strong> {getStrategyExplanation(cards, best, game)}
+</div>
+</div>
+</div>
+
+{/* Alternative Options */}
+{allOptions.slice(1, 3).map((option, idx) => {
+const difference = optimalOption.ev - option.ev;
+let severityColor = difference <= 0.1 ? "yellow" : difference <= 0.5 ? "orange" : "red";
+return (
+<div key={idx} className={`bg-${severityColor}-50 border border-${severityColor}-200 rounded-lg p-3`}>
+<div className="flex items-center justify-between mb-2">
+<span className={`font-medium text-${severityColor}-800`}>#{idx + 2} Alternative</span>
+<div className="text-right text-sm">
+<div className={`text-${severityColor}-700 font-medium`}>RTP: {(option.ev * 100).toFixed(1)}%</div>
+<div className={`text-${severityColor}-600 text-xs`}>Cost: -{(difference * 100).toFixed(1)}%</div>
+</div>
+</div>
+<div className={`text-${severityColor}-700 text-sm`}>
+<strong>Hold:</strong> {option.hold.length > 0 ? option.hold.map(i => cards[i]).join(", ") : "None"} - {option.description}
+</div>
+</div>
+);
+})}
+
+{/* Detailed Strategic Reasoning */}
+<div className="bg-gray-50 rounded-lg p-3 mt-3">
+<h5 className="font-semibold text-gray-800 mb-2">📋 Strategic Reasoning:</h5>
+<div className="text-sm text-gray-700 space-y-1">
+{(() => {
+  const currentHand = evaluateHand(cards, paytable);
+  const ranks = cards.map(rank);
+  const suits = cards.map(suit);
+  
+  if (currentHand.payout > 0) {
+    return (
+      <div>
+        <div>• <strong>Current Hand:</strong> {currentHand.name} (pays {currentHand.payout}x)</div>
+        <div>• <strong>Decision:</strong> Hold paying hand - guaranteed return beats any draw</div>
+        <div>• <strong>Risk:</strong> Zero risk vs. uncertain improvement from draws</div>
+      </div>
+    );
+  }
+  
+  // Check for draws
+  const suitCounts: {[key: string]: number} = {};
+  suits.forEach(s => suitCounts[s] = (suitCounts[s] || 0) + 1);
+  const flushDraw = Object.values(suitCounts).some(count => count === 4);
+  
+  const pairs: number[] = [];
+  const rankCounts: {[key: string]: number[]} = {};
+  ranks.forEach((r, i) => {
+    if (!rankCounts[r]) rankCounts[r] = [];
+    rankCounts[r].push(i);
+  });
+  
+  for (const positions of Object.values(rankCounts)) {
+    if (positions.length === 2) {
+      pairs.push(...positions);
+      break;
+    }
+  }
+  
+  const highCards = [0,1,2,3,4].filter(i => ['J', 'Q', 'K', 'A'].includes(ranks[i]));
+  
+  if (flushDraw) {
+    return (
+      <div>
+        <div>• <strong>4-Card Flush Draw:</strong> 9 cards complete flush (19% chance)</div>
+        <div>• <strong>Why Better:</strong> Flush pays {paytable.FLUSH}x, much higher than pair attempts</div>
+        <div>• <strong>Math:</strong> 9/47 × {paytable.FLUSH} = {((9/47 * paytable.FLUSH) * 100).toFixed(1)}% RTP vs {((1/47) * 100).toFixed(1)}% for random pair</div>
+      </div>
+    );
+  } else if (pairs.length === 2) {
+    const pairRank = ranks[pairs[0]];
+    const isHighPair = ['J', 'Q', 'K', 'A'].includes(pairRank);
+    return (
+      <div>
+        <div>• <strong>Pair Strategy:</strong> {pairRank} pair {isHighPair ? "(high)" : "(low)"}</div>
+        <div>• <strong>Improvement Odds:</strong> ~11% for trips, ~16% for two pair or better</div>
+        <div>• <strong>Why Hold:</strong> {isHighPair ? "Immediate 1x payout + improvement potential" : "No immediate payout but 27% improvement chance"}</div>
+      </div>
+    );
+  } else if (highCards.length > 0) {
+    return (
+      <div>
+        <div>• <strong>High Cards:</strong> {highCards.map(i => ranks[i]).join(", ")} give pair potential</div>
+        <div>• <strong>Pair Odds:</strong> ~13% chance per high card to pair up</div>
+        <div>• <strong>Strategy:</strong> {game.includes("Double") ? "In bonus games, Aces are especially valuable for jackpot potential" : "Any J+ pair pays 1-for-1"}</div>
+      </div>
+    );
+  } else {
+    return (
+      <div>
+        <div>• <strong>No Draws Found:</strong> Hand has no profitable holding patterns</div>
+        <div>• <strong>Best Option:</strong> Draw 5 fresh cards for maximum potential</div>
+        <div>• <strong>RTP:</strong> ~30% return from random 5-card hands</div>
+      </div>
+    );
+  }
+})()}
+</div>
+</div>
+</div>
+);
+})()}
+</div>
+
+{/* Interactive Hold Testing */}
+<div className="bg-yellow-50 rounded-lg p-4 mb-4">
+<h4 className="font-semibold text-yellow-800 mb-3">🧪 Test Your Hold vs Optimal</h4>
+<div className="mb-3">
+<p className="text-sm text-yellow-700 mb-2">Click cards below to test different hold strategies:</p>
+<div className="flex gap-2 flex-wrap justify-center">
+{cards.map((c, i) => {
+const cardRank = rank(c);
+const cardSuit = suit(c);
+const colorClass = getCardColor(cardSuit);
+const isHeld = playerHold.includes(i);
+return (
+<button
+  key={i}
+  onClick={() => {
+    if (isHeld) {
+      setPlayerHold(ph => ph.filter(x => x !== i));
+    } else {
+      setPlayerHold(ph => [...ph, i]);
+    }
+  }}
+  className={`w-12 h-16 rounded border-2 transition-all text-xs ${
+    isHeld 
+      ? "border-purple-500 bg-purple-50" 
+      : "border-gray-300 bg-white hover:border-purple-300"
+  }`}
+>
+<div className={`${colorClass}`}>
+<div className="font-bold">{cardRank}</div>
+<div>{cardSuit}</div>
+</div>
+{isHeld && <div className="text-purple-600 text-xs font-bold">HOLD</div>}
+</button>
+);
+})}
+</div>
+<button 
+  onClick={() => setPlayerHold([])}
+  className="mt-2 px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600"
+>
+Clear Holds
+</button>
+</div>
+
+{/* Comparison Results */}
+{playerHold.length > 0 && (
+<div className="border-t pt-3">
+{(() => {
+const comparison = calculateMistakeSeverity(playerHold, best, cards, paytable);
+return (
+<div className="grid grid-cols-2 gap-4 text-sm">
+<div className="space-y-1">
+<div><strong>Your Hold:</strong> {playerHold.map(i => cards[i]).join(", ")}</div>
+<div><strong>Your RTP:</strong> {(comparison.playerEV * 100).toFixed(1)}%</div>
+</div>
+<div className="space-y-1">
+<div><strong>Optimal Hold:</strong> {best.hold.map(i => cards[i]).join(", ")}</div>
+<div><strong>Optimal RTP:</strong> {(comparison.optimalEV * 100).toFixed(1)}%</div>
+</div>
+<div className="col-span-2 pt-2 border-t">
+<div className={`text-center font-bold ${comparison.color}`}>
+{comparison.difference <= 0.05 ? 
+  "🎉 Excellent choice!" :
+  `⚠️  ${comparison.severity}: -${(comparison.difference * 100).toFixed(1)}% RTP loss`
+}
+</div>
+</div>
+</div>
+);
+})()}
+</div>
+)}
+</div>
+
+{/* Hand Information */}
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+<div className="bg-gray-50 rounded-lg p-4">
+<h4 className="font-semibold mb-2">📋 Hand Details</h4>
+<div className="space-y-1 text-sm">
+<div><strong>Current Hand:</strong> {evaluateHand(cards, paytable).name}</div>
+<div><strong>Current Payout:</strong> {evaluateHand(cards, paytable).payout}x</div>
+<div><strong>Cards to Hold:</strong> {best.hold.length} cards</div>
+<div><strong>RTP:</strong> {(best.ev * 100).toFixed(1)}%</div>
+</div>
+</div>
+
+<div className="bg-gray-50 rounded-lg p-4">
+<h4 className="font-semibold mb-2">🎮 Game Info</h4>
+<div className="space-y-1 text-sm">
+<div><strong>Variant:</strong> {game}</div>
+<div><strong>Royal Flush:</strong> {paytable.ROYAL}x</div>
+<div><strong>Full House:</strong> {paytable.FULL_HOUSE}x</div>
+<div><strong>Flush:</strong> {paytable.FLUSH}x</div>
+</div>
+</div>
+</div>
+</motion.div>
 </div>
 )}
 </div>

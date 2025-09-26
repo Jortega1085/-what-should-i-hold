@@ -16,6 +16,7 @@ import { CareerStatsModal } from "./components/CareerStatsModal";
 import { FullDeckPicker } from "./components/FullDeckPicker";
 import { CasinoMode } from "./components/CasinoMode";
 import { TrainingMode } from "./components/TrainingMode";
+import { PracticeCasinoMode } from "./components/PracticeCasinoMode";
 import { StrategyDisplay } from "./components/StrategyDisplay";
 import {
   getDefaultCareerStats,
@@ -259,7 +260,7 @@ function calculateMistakeSeverity(
 
 
 export default function App() {
-const [mode, setMode] = useState<"training" | "analysis">("training");
+const [mode, setMode] = useState<"training" | "analysis" | "practice-casino">("training");
 const [theme, setTheme] = useState<"light" | "dark" | "casino">("light");
 const [cards, setCards] = useState<string[]>(() => getRandomHand());
 const [game, setGame] = useState(() => loadGameVariant());
@@ -498,31 +499,44 @@ return (
 
 {/* Mode Toggle */}
 <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-8 w-full sm:w-auto">
-<motion.button 
+<motion.button
   onClick={() => setMode("training")}
   whileHover={{ scale: 1.05, y: -2 }}
   whileTap={{ scale: 0.95 }}
   className={`w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 text-sm sm:text-base rounded-2xl font-bold transition-all duration-300 ${
-    mode === "training" 
-      ? `${currentTheme.primaryBtn} text-white ${currentTheme.shadow} ring-2 ring-blue-400/50` 
+    mode === "training"
+      ? `${currentTheme.primaryBtn} text-white ${currentTheme.shadow} ring-2 ring-blue-400/50`
       : `${currentTheme.glassPanel} ${currentTheme.text} hover:shadow-lg border border-slate-200/50`
   }`}
 >
   <span className="text-2xl mr-2">🎯</span>
   Training Mode
 </motion.button>
-<motion.button 
+<motion.button
   onClick={() => setMode("analysis")}
   whileHover={{ scale: 1.05, y: -2 }}
   whileTap={{ scale: 0.95 }}
   className={`w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 text-sm sm:text-base rounded-2xl font-bold transition-all duration-300 ${
-    mode === "analysis" 
-      ? `${currentTheme.successBtn} text-white ${currentTheme.shadow} ring-2 ring-emerald-400/50` 
+    mode === "analysis"
+      ? `${currentTheme.successBtn} text-white ${currentTheme.shadow} ring-2 ring-emerald-400/50`
       : `${currentTheme.glassPanel} ${currentTheme.text} hover:shadow-lg border border-slate-200/50`
   }`}
 >
   <span className="text-2xl mr-2">🔍</span>
   Hand Analysis
+</motion.button>
+<motion.button
+  onClick={() => setMode("practice-casino")}
+  whileHover={{ scale: 1.05, y: -2 }}
+  whileTap={{ scale: 0.95 }}
+  className={`w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 text-sm sm:text-base rounded-2xl font-bold transition-all duration-300 ${
+    mode === "practice-casino"
+      ? `bg-gradient-to-r from-purple-600 via-pink-600 to-indigo-600 text-white ${currentTheme.shadow} ring-2 ring-purple-400/50`
+      : `${currentTheme.glassPanel} ${currentTheme.text} hover:shadow-lg border border-slate-200/50`
+  }`}
+>
+  <span className="text-2xl mr-2">🎰📚</span>
+  Practice Casino
 </motion.button>
 </div>
 
@@ -549,6 +563,14 @@ return (
     getStrategyExplanation={getStrategyExplanation}
     calculateMistakeSeverity={calculateMistakeSeverity}
     getPlayerStrategyExplanation={getPlayerStrategyExplanation}
+  />
+) : mode === "practice-casino" ? (
+  <PracticeCasinoMode
+    game={game}
+    currentTheme={currentTheme}
+    getCardColor={getCardColor}
+    getAllStrategyOptions={getAllStrategyOptions}
+    getStrategyExplanation={getStrategyExplanation}
   />
 ) : (
 <div>

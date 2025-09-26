@@ -1,0 +1,78 @@
+/* 3D Card Flip Animation Styles */
+.card-container {
+  perspective: 1000px;
+}
+
+.card-flip {
+  transform-style: preserve-3d;
+  transition: transform 0.6s;
+}
+
+.card-face {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.card-front {
+  transform: rotateY(0deg);
+}
+
+.card-back {
+  transform: rotateY(180deg);
+}
+
+/* Enhance 3D effect */
+.card-flip.flipped {
+  transform: rotateY(180deg);
+}
+
+/* Card deal animation */
+@keyframes dealCard {
+  0% {
+    transform: translateY(-200px) rotateY(180deg) scale(0.5);
+    opacity: 0;
+  }
+  50% {
+    transform: translateY(0) rotateY(90deg) scale(1.1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0) rotateY(0deg) scale(1);
+    opacity: 1;
+  }
+}
+
+.deal-animation {
+  animation: dealCard 0.8s ease-out;
+}
+
+/* Card hover lift effect */
+.card-hover:hover {
+  transform: translateY(-10px) rotateX(5deg);
+  transition: transform 0.3s ease;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+}
+
+/* Shimmer effect for card back */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.card-back-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.1),
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}

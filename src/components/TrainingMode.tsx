@@ -17,6 +17,7 @@ interface TrainingModeProps {
   currentTheme: Record<string, string>;
   paytable: Record<string, number>;
   best: { hold: number[]; ev: number };
+  feedbackMessage: {text: string, isCorrect: boolean} | null;
   handleGameChange: (game: string) => void;
   toggleHold: (index: number) => void;
   dealRandom: () => void;
@@ -40,6 +41,7 @@ export function TrainingMode({
   currentTheme,
   paytable,
   best,
+  feedbackMessage,
   handleGameChange,
   toggleHold,
   dealRandom,
@@ -134,19 +136,35 @@ export function TrainingMode({
       </div>
 
       {/* Action Buttons */}
-      <div className="flex justify-center gap-4 mb-8">
-        <button
-          onClick={dealRandom}
-          className={`px-6 py-3 rounded-xl text-white font-bold transition-all duration-300 hover:scale-105 ${currentTheme.secondaryBtn} ${currentTheme.shadow}`}
-        >
-          🎲 Deal Random
-        </button>
-        <button
-          onClick={submitHold}
-          className={`px-6 py-3 rounded-xl text-white font-bold hover:scale-105 ${currentTheme.primaryBtn} ${currentTheme.shadow}`}
-        >
-          ✅ Submit Hold
-        </button>
+      <div className="flex flex-col items-center gap-4 mb-8">
+        <div className="flex justify-center gap-4">
+          <button
+            onClick={dealRandom}
+            className={`px-6 py-3 rounded-xl text-white font-bold transition-all duration-300 hover:scale-105 ${currentTheme.secondaryBtn} ${currentTheme.shadow}`}
+          >
+            🎲 Deal Random
+          </button>
+          <button
+            onClick={submitHold}
+            className={`px-6 py-3 rounded-xl text-white font-bold hover:scale-105 ${currentTheme.primaryBtn} ${currentTheme.shadow}`}
+          >
+            ✅ Submit Hold
+          </button>
+        </div>
+
+        {/* Feedback Message */}
+        {feedbackMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            className={`text-2xl font-bold ${
+              feedbackMessage.isCorrect ? 'text-green-600' : 'text-red-600'
+            }`}
+          >
+            {feedbackMessage.text}
+          </motion.div>
+        )}
       </div>
 
       {/* Hand Analysis Button - Fixed to Right Side */}

@@ -272,6 +272,7 @@ const [showHandAnalysis, setShowHandAnalysis] = useState(false);
 const [careerStats, setCareerStats] = useState<CareerStats>(() => loadCareerStats());
 const [showCareerStats, setShowCareerStats] = useState(false);
 const [showCasino, setShowCasino] = useState(false);
+const [feedbackMessage, setFeedbackMessage] = useState<{text: string, isCorrect: boolean} | null>(null);
 
 const paytable = PAYTABLES[game];
 
@@ -367,6 +368,9 @@ const bestSorted = submittedBest.hold.slice().sort();
 const correct = playerSorted.length === bestSorted.length &&
                playerSorted.every((x, i) => x === bestSorted[i]);
 
+// Show feedback message
+setFeedbackMessage({ text: correct ? "Correct!" : "Incorrect", isCorrect: correct });
+
 // Update score and history immediately for better responsiveness
 setScore(s => ({played: s.played+1, correct: s.correct + (correct?1:0)}));
 setHistory(h => [{
@@ -379,9 +383,12 @@ setHistory(h => [{
   optimalEv: submittedBest.ev
 }, ...h.slice(0, 9)]);
 
-// Deal new hand immediately for better UX
+// Deal new hand and clear feedback after a short delay
 setShowHandAnalysis(false);
-dealRandom();
+setTimeout(() => {
+  dealRandom();
+  setFeedbackMessage(null);
+}, 800);
 
 // Calculate mistake severity and update stats asynchronously to avoid blocking UI
 setTimeout(() => {
@@ -531,6 +538,7 @@ return (
     currentTheme={currentTheme}
     paytable={paytable}
     best={best}
+    feedbackMessage={feedbackMessage}
     handleGameChange={handleGameChange}
     toggleHold={toggleHold}
     dealRandom={dealRandom}

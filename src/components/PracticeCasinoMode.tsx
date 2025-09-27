@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { evaluateHand, getRandomHand, getOptimalHoldForGame, expectedValue, rank, suit } from '../logic/solver';
 import { PAYTABLES } from '../data/paytables';
@@ -67,29 +67,43 @@ export function PracticeCasinoMode({
 
   const paytable = PAYTABLES[game];
 
-  // Calculate optimal hold for current cards
-  const optimalHold = useMemo(() => {
-    if (cards.length === 5) {
-      try {
-        return getOptimalHoldForGame(cards, paytable, game);
-      } catch {
-        return { hold: [], ev: 0 };
-      }
-    }
-    return { hold: [], ev: 0 };
-  }, [cards, paytable, game]);
+  // Calculate optimal hold for current cards (deferred to prevent blocking)
+  const [optimalHold, setOptimalHold] = useState<{ hold: number[], ev: number }>({ hold: [], ev: 0 });
 
-  // Calculate player's EV
-  const playerEV = useMemo(() => {
-    if (cards.length === 5) {
-      try {
-        return expectedValue(cards, heldCards, paytable);
-      } catch {
-        return 0;
-      }
+  useEffect(() => {
+    if (cards.length === 5 && gameState === 'dealt') {
+      // Defer the expensive calculation
+      const timeoutId = setTimeout(() => {
+        try {
+          const result = getOptimalHoldForGame(cards, paytable, game);
+          setOptimalHold(result);
+        } catch {
+          setOptimalHold({ hold: [], ev: 0 });
+        }
+      }, 0);
+
+      return () => clearTimeout(timeoutId);
     }
-    return 0;
-  }, [cards, heldCards, paytable]);
+  }, [cards, paytable, game, gameState]);
+
+  // Calculate player's EV (deferred to prevent blocking)
+  const [playerEV, setPlayerEV] = useState<number>(0);
+
+  useEffect(() => {
+    if (cards.length === 5 && gameState === 'dealt') {
+      // Defer the expensive calculation
+      const timeoutId = setTimeout(() => {
+        try {
+          const result = expectedValue(cards, heldCards, paytable);
+          setPlayerEV(result);
+        } catch {
+          setPlayerEV(0);
+        }
+      }, 0);
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [cards, heldCards, paytable, gameState]);
 
   // Save stats whenever they change
   useEffect(() => {
@@ -152,6 +166,7 @@ export function PracticeCasinoMode({
   const drawCards = () => {
     setGameState('drawing');
 
+    // Build the new deck and cards synchronously for animation
     const newCards = [...cards];
     const deck: string[] = [];
     const suits = ['♠', '♥', '♦', '♣'];
@@ -178,26 +193,29 @@ export function PracticeCasinoMode({
 
     setFinalCards(newCards);
 
-    // Evaluate final hand
-    const result = evaluateHand(newCards, paytable);
-    setLastHand({ name: result.name, payout: result.payout });
+    // Defer only the expensive evaluation operations
+    setTimeout(() => {
+      // Evaluate final hand
+      const result = evaluateHand(newCards, paytable);
+      setLastHand({ name: result.name, payout: result.payout });
 
-    const payout = result.payout * bet;
-    setWinAmount(payout);
+      const payout = result.payout * bet;
+      setWinAmount(payout);
 
-    if (useCredits && payout > 0) {
-      setCredits(prev => prev + payout);
-    }
+      if (useCredits && payout > 0) {
+        setCredits(prev => prev + payout);
+      }
 
-    // Update stats
-    setStats(prev => ({
-      ...prev,
-      handsPlayed: prev.handsPlayed + 1,
-      creditsWon: prev.creditsWon + (payout > bet ? payout - bet : 0),
-      creditsLost: prev.creditsLost + (payout < bet ? bet - payout : 0)
-    }));
+      // Update stats
+      setStats(prev => ({
+        ...prev,
+        handsPlayed: prev.handsPlayed + 1,
+        creditsWon: prev.creditsWon + (payout > bet ? payout - bet : 0),
+        creditsLost: prev.creditsLost + (payout < bet ? bet - payout : 0)
+      }));
 
-    setGameState('showResult');
+      setGameState('showResult');
+    }, 600); // Delay to allow flip animation to complete
   };
 
   const handleChangeDecision = () => {
@@ -341,13 +359,13 @@ export function PracticeCasinoMode({
             ))
           ) : (
             // Show actual cards
-            (gameState === 'showResult' ? finalCards : cards).map((card, i) => {
+            ((gameState === 'drawing' || gameState === 'showResult') && finalCards.length > 0 ? finalCards : cards).map((card, i) => {
               const cardRank = rank(card);
               const cardSuit = suit(card);
               const colorClass = getCardColor(cardSuit);
               const isHeld = heldCards.includes(i);
-              const shouldFlip = gameState === 'drawing' && !isHeld;
-              const isNewCard = gameState === 'showResult' && !isHeld && finalCards[i] !== cards[i];
+              const shouldFlip = gameState === 'drawing' && !isHeld && finalCards.length > 0 && finalCards[i] !== cards[i];
+              const isNewCard = (gameState === 'drawing' || gameState === 'showResult') && !isHeld && finalCards.length > 0 && finalCards[i] !== cards[i];
 
               return (
                 <motion.div

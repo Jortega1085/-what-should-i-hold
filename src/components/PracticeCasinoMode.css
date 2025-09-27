@@ -32,22 +32,28 @@
 /* Card deal animation */
 @keyframes dealCard {
   0% {
-    transform: translateY(-200px) rotateY(180deg) scale(0.5);
+    transform: rotateY(180deg) scale(0.5);
     opacity: 0;
   }
   50% {
-    transform: translateY(0) rotateY(90deg) scale(1.1);
-    opacity: 1;
+    transform: rotateY(90deg) scale(0.85);
+    opacity: 0.7;
   }
   100% {
-    transform: translateY(0) rotateY(0deg) scale(1);
+    transform: rotateY(0deg) scale(1);
     opacity: 1;
   }
 }
 
 .deal-animation {
-  animation: dealCard 0.8s ease-out;
+  animation: dealCard 0.6s ease-out forwards;
 }
+
+.deal-animation-0 { animation-delay: 0s; }
+.deal-animation-1 { animation-delay: 0.1s; }
+.deal-animation-2 { animation-delay: 0.2s; }
+.deal-animation-3 { animation-delay: 0.3s; }
+.deal-animation-4 { animation-delay: 0.4s; }
 
 /* Card hover lift effect */
 .card-hover:hover {

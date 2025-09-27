@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, startTransition } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { evaluateHand, getRandomHand, getOptimalHoldForGame, expectedValue, rank, suit } from '../logic/solver';
 import { PAYTABLES } from '../data/paytables';
@@ -40,12 +40,14 @@ export function PracticeCasinoMode({
   const [credits, setCredits] = useState(1000);
   const [bet, setBet] = useState(5);
   const [useCredits, setUseCredits] = useState(true);
+  const [cardsFlipped, setCardsFlipped] = useState<boolean[]>([false, false, false, false, false]);
 
   // Feedback state
   const [showWarning, setShowWarning] = useState(false);
   const [showCorrectFeedback, setShowCorrectFeedback] = useState(false);
   const [enableWarnings, setEnableWarnings] = useState(true);
   const [showAnalysis, setShowAnalysis] = useState(false);
+  const [dealId, setDealId] = useState(0); // Track deal cycles for animation
 
   // Results state
   const [lastHand, setLastHand] = useState<{name: string, payout: number} | null>(null);
@@ -72,7 +74,7 @@ export function PracticeCasinoMode({
 
   useEffect(() => {
     if (cards.length === 5 && gameState === 'dealt') {
-      // Defer the expensive calculation
+      // Defer the expensive calculation with a slight delay for smoother animation
       const timeoutId = setTimeout(() => {
         try {
           const result = getOptimalHoldForGame(cards, paytable, game);
@@ -80,7 +82,7 @@ export function PracticeCasinoMode({
         } catch {
           setOptimalHold({ hold: [], ev: 0 });
         }
-      }, 0);
+      }, 50); // Small delay to allow animations to start
 
       return () => clearTimeout(timeoutId);
     }
@@ -91,7 +93,7 @@ export function PracticeCasinoMode({
 
   useEffect(() => {
     if (cards.length === 5 && gameState === 'dealt') {
-      // Defer the expensive calculation
+      // Defer the expensive calculation with a slight delay for smoother animation
       const timeoutId = setTimeout(() => {
         try {
           const result = expectedValue(cards, heldCards, paytable);
@@ -99,7 +101,7 @@ export function PracticeCasinoMode({
         } catch {
           setPlayerEV(0);
         }
-      }, 0);
+      }, 100); // Slightly longer delay as this updates more frequently
 
       return () => clearTimeout(timeoutId);
     }
@@ -123,17 +125,38 @@ export function PracticeCasinoMode({
     if (useCredits && credits < bet) return;
 
     const newCards = getRandomHand();
-    setCards(newCards);
-    setFinalCards([]);
-    setHeldCards([]);
-    setLastHand(null);
-    setWinAmount(0);
-    setShowCorrectFeedback(false);
-    setGameState('dealt');
 
-    if (useCredits) {
-      setCredits(prev => prev - bet);
-    }
+    // Use startTransition to mark updates as non-urgent
+    startTransition(() => {
+      // Reset calculated values immediately to avoid showing stale data
+      setOptimalHold({ hold: [], ev: 0 });
+      setPlayerEV(0);
+
+      // Batch state updates to reduce re-renders
+      setCards(newCards);
+      setFinalCards([]);
+      setHeldCards([]);
+      setLastHand(null);
+      setWinAmount(0);
+      setShowCorrectFeedback(false);
+      setGameState('betting'); // Start in betting to ensure cards are face down
+      setDealId(prev => prev + 1); // Increment to trigger new animations
+
+      // Ensure cards start face down
+      setCardsFlipped([false, false, false, false, false]);
+
+      // Immediately switch to dealt and start flipping
+      setGameState('dealt');
+      setTimeout(() => setCardsFlipped([true, false, false, false, false]), 100);
+      setTimeout(() => setCardsFlipped([true, true, false, false, false]), 200);
+      setTimeout(() => setCardsFlipped([true, true, true, false, false]), 300);
+      setTimeout(() => setCardsFlipped([true, true, true, true, false]), 400);
+      setTimeout(() => setCardsFlipped([true, true, true, true, true]), 500);
+
+      if (useCredits) {
+        setCredits(prev => prev - bet);
+      }
+    });
   };
 
   const checkDecision = () => {
@@ -168,6 +191,9 @@ export function PracticeCasinoMode({
 
     // Build the new deck and cards synchronously for animation
     const newCards = [...cards];
+
+    // More efficient deck building using Set for O(1) lookups
+    const usedCards = new Set(cards);
     const deck: string[] = [];
     const suits = ['♠', '♥', '♦', '♣'];
     const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
@@ -176,11 +202,14 @@ export function PracticeCasinoMode({
     for (const s of suits) {
       for (const r of ranks) {
         const card = `${r}${s}`;
-        if (!cards.includes(card)) {
+        if (!usedCards.has(card)) {
           deck.push(card);
         }
       }
     }
+
+    // Track which cards need to be replaced (flip animation)
+    const cardsToFlip: number[] = [];
 
     // Replace unheld cards
     for (let i = 0; i < 5; i++) {
@@ -188,12 +217,41 @@ export function PracticeCasinoMode({
         const randomIndex = Math.floor(Math.random() * deck.length);
         newCards[i] = deck[randomIndex];
         deck.splice(randomIndex, 1);
+        cardsToFlip.push(i);
       }
     }
 
-    setFinalCards(newCards);
+    // First, flip all unheld cards to show their backs
+    cardsToFlip.forEach((cardIndex) => {
+      setTimeout(() => {
+        setCardsFlipped(prev => {
+          const newState = [...prev];
+          newState[cardIndex] = false;
+          return newState;
+        });
+      }, 100); // All flip to back at once after small delay
+    });
+
+    // Then set the new cards after backs are showing
+    setTimeout(() => {
+      setFinalCards(newCards);
+
+      // Now flip each card to reveal new front one by one
+      cardsToFlip.forEach((cardIndex, i) => {
+        setTimeout(() => {
+          setCardsFlipped(prev => {
+            const newState = [...prev];
+            newState[cardIndex] = true;
+            return newState;
+          });
+        }, i * 200); // Stagger the reveal of new cards
+      });
+    }, 600); // Wait for all cards to show backs first
 
     // Defer only the expensive evaluation operations
+    // Wait for all cards to finish flipping: 600ms (backs) + (cardsToFlip.length * 200ms) for reveals
+    const evaluationDelay = cardsToFlip.length > 0 ? 600 + (cardsToFlip.length * 200) + 100 : 100;
+
     setTimeout(() => {
       // Evaluate final hand
       const result = evaluateHand(newCards, paytable);
@@ -215,7 +273,12 @@ export function PracticeCasinoMode({
       }));
 
       setGameState('showResult');
-    }, 600); // Delay to allow flip animation to complete
+
+      // Reset cards to face down after showing result for a bit
+      setTimeout(() => {
+        setCardsFlipped([false, false, false, false, false]);
+      }, 2000);
+    }, evaluationDelay); // Delay to allow flip animation to complete
   };
 
   const handleChangeDecision = () => {
@@ -351,103 +414,51 @@ export function PracticeCasinoMode({
         )}
 
         {/* Cards Display */}
-        <div className="flex justify-center gap-4 mb-6" style={{ perspective: '1000px' }}>
-          {gameState === 'betting' ? (
-            // Show placeholder cards
-            Array(5).fill(null).map((_, i) => (
-              <div key={i} className={`w-20 h-28 rounded-xl border-2 border-dashed ${currentTheme.border} opacity-30`} />
-            ))
-          ) : (
-            // Show actual cards
-            ((gameState === 'drawing' || gameState === 'showResult') && finalCards.length > 0 ? finalCards : cards).map((card, i) => {
-              const cardRank = rank(card);
-              const cardSuit = suit(card);
-              const colorClass = getCardColor(cardSuit);
-              const isHeld = heldCards.includes(i);
-              const shouldFlip = gameState === 'drawing' && !isHeld && finalCards.length > 0 && finalCards[i] !== cards[i];
-              const isNewCard = (gameState === 'drawing' || gameState === 'showResult') && !isHeld && finalCards.length > 0 && finalCards[i] !== cards[i];
+        <div className="flex justify-center gap-4 mb-6">
+          {Array(5).fill(null).map((_, i) => {
+            const hasCard = cards.length > 0 && cards[i];
+            const cardToShow = (gameState === 'drawing' || gameState === 'showResult') && finalCards.length > 0 && finalCards[i] ? finalCards[i] : cards[i];
+            const cardRank = hasCard ? rank(cardToShow) : '';
+            const cardSuit = hasCard ? suit(cardToShow) : '';
+            const colorClass = hasCard ? getCardColor(cardSuit) : '';
+            const isHeld = heldCards.includes(i);
+            const isFlipped = cardsFlipped[i] && gameState !== 'betting';
 
-              return (
-                <motion.div
-                  key={`card-${i}-${card}`}
-                  initial={
-                    gameState === 'dealt'
-                      ? { y: -300, rotateY: 180, scale: 0.5, opacity: 0 }
-                      : shouldFlip || isNewCard
-                        ? { rotateY: 180, scale: 0.9 }
-                        : { rotateY: 0 }
-                  }
-                  animate={{
-                    y: 0,
-                    rotateY: 0,
-                    scale: 1,
-                    opacity: 1,
-                    translateY: isHeld && gameState === 'dealt' ? -8 : 0
+            return (
+              <div key={i} className="relative" style={{ perspective: '1000px' }}>
+                <div
+                  className={`relative w-20 h-28 ${gameState === 'dealt' ? 'cursor-pointer' : ''} ${
+                    isHeld && gameState === 'dealt' ? '-translate-y-2' : ''
+                  }`}
+                  style={{
+                    transformStyle: 'preserve-3d',
+                    transform: isFlipped ? 'rotateY(0deg)' : 'rotateY(180deg)',
+                    transition: 'transform 0.6s ease-in-out'
                   }}
-                  transition={{
-                    y: {
-                      type: "spring",
-                      stiffness: 100,
-                      damping: 15,
-                      delay: gameState === 'dealt' ? i * 0.1 : 0
-                    },
-                    rotateY: {
-                      duration: 0.6,
-                      delay: gameState === 'dealt' ? i * 0.1 + 0.3 : !isHeld ? i * 0.15 : 0,
-                      ease: "easeInOut"
-                    },
-                    scale: {
-                      duration: 0.4,
-                      delay: gameState === 'dealt' ? i * 0.1 : !isHeld ? i * 0.15 : 0
-                    },
-                    opacity: {
-                      duration: 0.3,
-                      delay: gameState === 'dealt' ? i * 0.1 : 0
-                    },
-                    translateY: {
-                      duration: 0.2
-                    }
-                  }}
-                  whileHover={gameState === 'dealt' ? { scale: 1.05, translateY: -12 } : {}}
-                  className="relative"
-                  style={{ transformStyle: 'preserve-3d' }}
+                  onClick={() => gameState === 'dealt' && toggleHold(i)}
                 >
-                  <button
-                    onClick={() => toggleHold(i)}
-                    disabled={gameState !== 'dealt'}
-                    className="relative w-20 h-28 rounded-xl"
-                    style={{ transformStyle: 'preserve-3d' }}
-                  >
                     {/* Card Back */}
                     <div
-                      className={`absolute inset-0 rounded-xl border-2 border-indigo-900 ${currentTheme.shadow} backface-hidden overflow-hidden`}
+                      className="absolute inset-0 rounded-xl border-2 border-indigo-900 shadow-lg overflow-hidden"
                       style={{
                         transform: 'rotateY(180deg)',
-                        backfaceVisibility: 'hidden'
+                        backfaceVisibility: 'hidden',
+                        WebkitBackfaceVisibility: 'hidden'
                       }}
                     >
-                      <div className="w-full h-full rounded-xl bg-gradient-to-br from-indigo-600 via-purple-700 to-pink-600 flex items-center justify-center relative">
-                        {/* Pattern overlay */}
-                        <div className="absolute inset-0 opacity-10">
+                      <div className="w-full h-full rounded-xl bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-600 flex items-center justify-center relative">
+                        <div className="absolute inset-0 opacity-20">
                           <div className="grid grid-cols-3 gap-1 h-full w-full p-2">
                             {[...Array(12)].map((_, idx) => (
-                              <div key={idx} className="text-white/30 text-xs flex items-center justify-center">
+                              <div key={idx} className="text-white/40 text-xs flex items-center justify-center">
                                 {['♠', '♥', '♦', '♣'][idx % 4]}
                               </div>
                             ))}
                           </div>
                         </div>
-                        {/* Center design */}
                         <div className="relative">
-                          <motion.div
-                            animate={{ rotate: 360 }}
-                            transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-                            className="text-white/30 text-6xl font-bold"
-                          >
-                            ♠
-                          </motion.div>
+                          <div className="text-white/50 text-4xl font-bold">♠</div>
                         </div>
-                        {/* Shimmer effect */}
                         <div className="absolute inset-0 card-back-shimmer" />
                       </div>
                     </div>
@@ -457,38 +468,37 @@ export function PracticeCasinoMode({
                       className={`absolute inset-0 rounded-xl border-2 ${currentTheme.cardBg} ${currentTheme.shadow} ${
                         isHeld ? 'border-green-500 bg-green-50 ring-2 ring-green-300' : 'border-gray-300'
                       } ${gameState === 'dealt' && !isHeld ? 'hover:border-blue-400' : ''}`}
-                      style={{ backfaceVisibility: 'hidden' }}
+                      style={{
+                        backfaceVisibility: 'hidden',
+                        WebkitBackfaceVisibility: 'hidden',
+                        transform: 'rotateY(0deg)'
+                      }}
                     >
-                      <div className={`flex flex-col items-center justify-center h-full ${colorClass}`}>
-                        <motion.div
-                          initial={{ scale: 0 }}
-                          animate={{ scale: 1 }}
-                          transition={{ delay: !isHeld && (shouldFlip || isNewCard) ? 0.3 + i * 0.15 : 0, duration: 0.3 }}
-                        >
+                      {hasCard && (
+                        <div className={`flex flex-col items-center justify-center h-full ${colorClass}`}>
                           <div className="text-2xl font-bold">{cardRank}</div>
                           <div className="text-3xl">{cardSuit}</div>
-                        </motion.div>
-                      </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Hold Badge */}
                     <AnimatePresence>
-                      {isHeld && (
+                      {isHeld && gameState === 'dealt' && (
                         <motion.div
                           initial={{ scale: 0, y: 10 }}
                           animate={{ scale: 1, y: 0 }}
                           exit={{ scale: 0, y: 10 }}
-                          className="absolute -bottom-3 left-1/2 transform -translate-x-1/2 bg-green-600 text-white text-xs px-3 py-1 rounded-full font-bold shadow-lg"
+                          className="absolute -bottom-3 left-1/2 transform -translate-x-1/2 bg-green-600 text-white text-xs px-3 py-1 rounded-full font-bold shadow-lg z-10"
                         >
                           HOLD
                         </motion.div>
                       )}
                     </AnimatePresence>
-                  </button>
-                </motion.div>
+                  </div>
+                </div>
               );
-            })
-          )}
+            })}
         </div>
 
         {/* Feedback Messages */}
@@ -538,9 +548,9 @@ export function PracticeCasinoMode({
           ) : gameState === 'dealt' ? (
             <button
               onClick={checkDecision}
-              className={`px-8 py-3 rounded-xl text-white font-bold transition-all duration-300 hover:scale-105 ${currentTheme.successBtn} ${currentTheme.shadow}`}
+              className={`px-8 py-3 rounded-xl text-white font-bold transition-all duration-300 hover:scale-105 ${currentTheme.primaryBtn} ${currentTheme.shadow}`}
             >
-              ✅ Draw Cards
+              🎲 Draw Cards
             </button>
           ) : null}
         </div>
